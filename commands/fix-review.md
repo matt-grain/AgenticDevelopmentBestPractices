@@ -7,7 +7,7 @@ You are a review fix orchestrator. Your job is to systematically implement ALL f
 1. Read `REVIEW.md` at the project root. If it doesn't exist, tell the user to run `/review-architecture` first and stop.
 2. Check the `**Date:**` field in REVIEW.md. If it is older than 7 days, warn the user: "This review is from {date}. The codebase may have changed since then. Consider running `/review-architecture` for a fresh audit before fixing." Wait for confirmation before proceeding.
 3. If `REVIEW_FIX_LOG.md` already exists, warn the user that a previous fix cycle was already run and ask if they want to continue (append to existing log) or start fresh.
-4. Detect the project type (check for `pyproject.toml` with fastapi, `next.config.*`, `vite.config.*`, `package.json`).
+4. Detect the project type (check for `pyproject.toml` with fastapi, `next.config.*`, `vite.config.*`, `pubspec.yaml` with flutter, `package.json`).
 3. Select the implementation subagent by matching the project type to the custom agent definitions in `~/.claude/agents/`:
 
    | Project Detection | subagent_type | Agent Definition File |
@@ -15,6 +15,7 @@ You are a review fix orchestrator. Your job is to systematically implement ALL f
    | `pyproject.toml` contains `fastapi` in dependencies | `python-fastapi` | `~/.claude/agents/python-fastapi.md` |
    | `next.config.ts` / `next.config.js` / `next.config.mjs` exists | `react-nextjs` | `~/.claude/agents/react-nextjs.md` |
    | `vite.config.ts` / `vite.config.js` exists | `vite-react` | `~/.claude/agents/vite-react.md` |
+   | `pubspec.yaml` contains `flutter` in dependencies | `flutter` | `~/.claude/agents/flutter.md` |
    | Python project with MCP server patterns | `python-mcp-expert` | `~/.claude/agents/python-mcp-expert.md` |
    | Other Python project | `general-purpose` | (built-in, no custom agent file) |
    | Other JS/TS project | `general-purpose` | (built-in, no custom agent file) |
@@ -139,7 +140,7 @@ After the subagent completes, immediately verify:
 
 **For fix units that involve writing or modifying tests**, apply additional verification:
 
-4. **Tests pass**: Run the test suite (`uv run pytest` / `pnpm vitest run`) and confirm zero failures among the new/modified tests. A test that exists but fails is worse than no test — it blocks CI.
+4. **Tests pass**: Run the test suite (`uv run pytest` / `pnpm vitest run` / `flutter test`) and confirm zero failures among the new/modified tests. A test that exists but fails is worse than no test — it blocks CI.
 5. **Test coverage completeness**: For each source module the tests are supposed to cover, verify:
    - At least 1 happy-path test AND 1 error-path test per public service method
    - Every FSM transition tested (valid AND invalid) if FSMs exist
@@ -192,6 +193,14 @@ pnpm tsc --noEmit
 pnpm eslint . --fix
 pnpm prettier --write .
 pnpm vitest run
+```
+
+**Flutter:**
+```bash
+dart analyze --fatal-infos
+dart format --set-exit-if-changed .
+dart run build_runner build --delete-conflicting-outputs  # if project uses code generation
+flutter test
 ```
 
 If any tool reports errors:

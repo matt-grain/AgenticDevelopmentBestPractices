@@ -7,7 +7,7 @@ You are a lightweight architecture gate. Your job is to review ONLY the files ch
 1. Detect the base branch: run `git rev-parse --verify main 2>/dev/null || git rev-parse --verify master` to find the main branch name.
 2. Get the list of changed files: run `git diff --name-only --diff-filter=ACMR $(git merge-base HEAD <base-branch>)..HEAD` to find all Added, Copied, Modified, or Renamed files.
 3. If there are no changed files, tell the user "No changes detected against the base branch" and stop.
-4. Filter to only source files (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`) — ignore config files, docs, assets, lockfiles.
+4. Filter to only source files (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.dart`) — ignore config files, docs, assets, lockfiles, generated files (`.g.dart`, `.freezed.dart`).
 5. Detect the project type from the changed files' paths and extensions.
 
 Report to the user: "Checking {N} changed files against architecture rules..."
@@ -41,6 +41,18 @@ pnpm eslint <changed .ts/.tsx files>
 
 # Run tests
 pnpm vitest run
+```
+
+**Flutter:**
+```bash
+# Static analysis (whole project — Dart analyzer is global)
+dart analyze --fatal-infos
+
+# Format check only changed files
+dart format --set-exit-if-changed <changed .dart files>
+
+# Run tests
+flutter test
 ```
 
 If any tool fails, report the errors but continue checking — don't stop at the first failure.
@@ -83,6 +95,22 @@ Group checks by what's relevant to each file's location:
 - Does it use `getByTestId` heavily in co-located tests? (suggest better queries)
 - Does a feature import from another feature?
 
+### For files in `features/*/presentation/` (Flutter):
+- Does the widget import from `data/` directly? (should go through domain/)
+- Does it contain HTTP/API calls? (should be in data layer)
+- Does it use `setState` for server data? (should use Riverpod/Bloc)
+- Does it use `ChangeNotifier`? (should use Riverpod/Bloc)
+- Does it have `ref.read` in `build()` method? (should be `ref.watch`)
+
+### For files in `features/*/domain/` (Flutter):
+- Does it import Flutter packages? (domain must be pure Dart)
+- Does it import from `data/`? (dependency inversion violation)
+- Are models using `@freezed`? (domain models should be immutable)
+
+### For files in `features/*/data/` (Flutter):
+- Do DTOs map to domain entities? (never expose DTOs above data layer)
+- Does it use raw string comparisons instead of enums?
+
 ### For files in `state_machines/` or `enums/`:
 - Are all transitions tested? (check for corresponding test file)
 
@@ -98,7 +126,7 @@ Group checks by what's relevant to each file's location:
 - Are there functions with 6+ parameters?
 - Are there `# type: ignore` / `@ts-ignore` / `eslint-disable` without justification?
 - Are there `TODO` / `FIXME` / `HACK` comments?
-- Are there `print()` calls in production code?
+- Are there `print()` / `debugPrint()` calls in production code?
 - Are there f-string SQL patterns?
 - Are there hardcoded secrets?
 - Is `Any` / `any` used without justification?

@@ -22,6 +22,7 @@ Use Glob and Read to scan the project root for these marker files:
 - `pyproject.toml` → check if `fastapi` appears in dependencies → **Python/FastAPI**; otherwise → **Python (generic)**
 - `next.config.ts` or `next.config.js` or `next.config.mjs` → **Next.js**
 - `vite.config.ts` or `vite.config.js` → **Vite/React**
+- `pubspec.yaml` → check if `flutter` appears in dependencies → **Flutter**; otherwise → **Dart (generic)**
 - `package.json` (without Next/Vite config files) → **Generic JS/TS**
 
 A project can be **mixed** (e.g., Python backend + React frontend). Detect all that apply.
@@ -92,13 +93,25 @@ RULES TO AUDIT AGAINST:
 - Same component, service, hook, store separation rules
 - Environment variables validated with Zod at startup — never access `import.meta.env` directly elsewhere
 
+**For Flutter projects:**
+- Must follow Clean Architecture: features/ with data/ → domain/ ← presentation/ per feature
+- Domain layer is pure Dart — no Flutter imports, no external package imports
+- Presentation layer never imports from data/ directly — always through domain/
+- Features are self-contained vertical slices — features MUST NOT import from other features
+- Pages are thin orchestrators — compose widgets, read state, dispatch events. No business logic.
+- Data layer DTOs must map to domain entities — never expose DTOs above data layer
+- Repository interfaces defined in domain/, implementations in data/
+- Use cases encapsulate single business operations in domain/
+- DI wired via Riverpod providers or get_it — never manual instantiation in widgets
+- Configuration via `--dart-define` or `envied` — never hardcode environment values
+
 **Cross-cutting rules (all project types):**
-- No catch-all utils.py/utils.ts files over 50 lines — must be topic-specific
-- Flat package structures — no nesting deeper than 3 levels
+- No catch-all utils.py/utils.ts/utils.dart files over 50 lines — must be topic-specific
+- Flat package structures — no nesting deeper than 4 levels (Flutter allows 1 extra for feature layers)
 - No circular imports
 
 AUDIT TASKS:
-1. Use Glob to map the directory structure (glob for **/*.py, **/*.ts, **/*.tsx as appropriate)
+1. Use Glob to map the directory structure (glob for **/*.py, **/*.ts, **/*.tsx, **/*.dart as appropriate)
 2. Check if the project follows the expected directory layout
 3. Use Grep to find import violations:
    - Python: routers importing from repositories or models directly
@@ -108,7 +121,10 @@ AUDIT TASKS:
    - Python: services type-hinting concrete repository classes instead of Protocols
    - TS/React: features importing from other features
    - TS/React: components importing from stores or doing data fetching
-4. Check for missing layers (e.g., no services/ directory, logic in routers)
+   - Flutter: presentation/ importing from data/ (should go through domain/)
+   - Flutter: domain/ importing Flutter packages or data/ packages
+   - Flutter: features importing from other features
+4. Check for missing layers (e.g., no services/ directory, logic in routers; no domain/ in Flutter features)
 5. Check that pages/routes are thin (read a sample and check line count)
 6. Python: Grep router files for `@router.` decorators without `response_model=` or `status_code=`
 7. Python: Grep router files for raw `Depends(` in function params (should use Annotated aliases)
@@ -118,6 +134,9 @@ AUDIT TASKS:
 11. TS/React: Check route directories for missing `error.tsx` boundaries
 12. TS/React: Grep for `process.env.` or `import.meta.env.` outside `lib/env.ts`
 13. TS/React: Check if query keys are centralized or scattered across components
+14. Flutter: Check if each feature has data/, domain/, presentation/ subdirectories
+15. Flutter: Grep for `http.get` or `Dio` calls in presentation/ (should be in data/)
+16. Flutter: Check if repository interfaces exist in domain/repositories/
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
@@ -171,6 +190,22 @@ RULES TO AUDIT AGAINST:
 - One exported component per file
 - No inline arrow functions in JSX for non-trivial logic (extract to handler or useCallback)
 
+**For Flutter/Dart projects:**
+- ALL functions must have full type annotations (parameters + return types) — no implicit dynamic
+- Never use `dynamic` without an explanatory comment — prefer `Object?` and type narrowing
+- Use sound null safety — never use `!` (bang operator) without justifying why null is impossible
+- Use `@freezed` for immutable models — never mutable classes for domain entities
+- Enhanced enums (Dart 3.0+) with properties/methods for associated behavior
+- Use pattern matching / switch expressions — never `if/else` chains on type or enum
+- Naming: PascalCase classes/enums/typedefs, camelCase methods/variables, snake_case files/directories, SCREAMING_SNAKE_CASE constants
+- Boolean variables: is, has, can, should prefixes
+- Use `always_use_package_imports` or `prefer_relative_imports` — pick ONE, never mix
+- File SHOULD NOT exceed 200 lines (excluding imports and generated code)
+- Single function SHOULD NOT exceed 30 lines
+- Single class SHOULD NOT exceed 150 lines
+- Maximum 5 function parameters — beyond that, use a params class or record
+- Never edit generated files (`.g.dart`, `.freezed.dart`)
+
 AUDIT TASKS:
 1. Use Grep to find functions missing type annotations (Python: def without -> ; TS: function without : return type)
 2. Use Grep to find Any/any usage without justification comments
@@ -185,6 +220,12 @@ AUDIT TASKS:
 11. TS/React: Grep for component files with multiple `export function` or `export const` (one component per file)
 12. TS/React: Grep for `require(` in .ts/.tsx files
 13. TS/React: Check that component props types follow `<Name>Props` naming convention
+14. Flutter: Grep for `dynamic` in .dart files (excluding generated .g.dart/.freezed.dart) — flag untyped usage
+15. Flutter: Grep for `!` (bang operator) in .dart files — flag uses without null-impossibility comment
+16. Flutter: Check naming conventions: files should be snake_case, classes PascalCase
+17. Flutter: Grep for functions with 6+ parameters in .dart files
+18. Flutter: Check files for length > 200 lines (excluding generated files)
+19. Flutter: Grep for mutable class fields in domain models (should use @freezed)
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
@@ -226,6 +267,23 @@ RULES TO AUDIT AGAINST:
 - TanStack Query for all server state; wrap in custom hooks
 - Components with 3+ useState calls likely need a custom hook or useReducer
 
+**For Flutter projects:**
+- ALWAYS use enhanced enums for any value from a fixed known set — never raw strings
+- Never use raw strings for statuses, roles, types, categories, modes
+- Enums use enhanced Dart 3.0+ syntax with properties and methods for associated behavior
+- ANY entity with a status/state field MUST define a formal FSM using freezed sealed classes
+- FSMs implemented with freezed sealed classes + Bloc or dedicated state machine
+- ANY flow with 3+ states and constrained transitions MUST use an FSM (checkout, auth, onboarding)
+- Default to Riverpod for state management — use Bloc when team prefers or for event-driven state
+- NEVER store server data in `StatefulWidget` `setState` — use Riverpod or Bloc
+- NEVER fetch data in `initState` with manual `setState` — use providers or FutureBuilder backed by a provider
+- NEVER use `ChangeNotifier` for new code — use Riverpod or Bloc instead
+- Use `ref.watch` in `build()` — never `ref.read` (use `ref.read` only in callbacks/event handlers)
+- Use `autoDispose` by default — only omit when state must survive navigation
+- Bloc: events are past-tense (`OrderCreated`), states use freezed sealed classes
+- Bloc: blocs never call other blocs — use shared use case or repository
+- Form state: use `Form` + `GlobalKey<FormState>` or `reactive_forms` — never manual setState for forms
+
 AUDIT TASKS:
 1. Use Grep to find string literal comparisons that suggest missing enums:
    - Python: == "active", == "pending", == "draft", status == ", role == ", type == " etc.
@@ -239,6 +297,13 @@ AUDIT TASKS:
 8. For React projects: grep for `useState` count per component — flag components with 3+ useState calls
 9. For React projects: grep for filter/sort/pagination state in useState (should be URL params)
 10. For React projects: check if Zustand store actions are defined inside the store (not as external functions)
+11. Flutter: Grep for raw string comparisons (`== "active"`, `== "pending"`, `status == "`) in .dart files
+12. Flutter: Check if entities with `status`/`state` fields have corresponding FSM (freezed sealed class)
+13. Flutter: Grep for `setState(` that contains fetch/API calls (server data in StatefulWidget)
+14. Flutter: Grep for `initState` containing fetch/API/network calls
+15. Flutter: Grep for `ChangeNotifier` usage (should use Riverpod or Bloc)
+16. Flutter: Grep for `ref.read` inside `build()` methods (should be `ref.watch`)
+17. Flutter: Check if Bloc events use past-tense naming (e.g., `Created`, `Updated` not `Create`, `Update`)
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
@@ -284,15 +349,38 @@ RULES TO AUDIT AGAINST:
 - Co-locate tests: component.tsx → component.test.tsx
 - Vitest + React Testing Library
 
+**For Flutter projects:**
+- Test names: `'should <expected behavior> when <scenario>'` inside `test()` or `testWidgets()`
+- Group related tests with `group()` named after the class/widget under test
+- Every test follows AAA pattern (Arrange/Act/Assert) with clear visual separation
+- Domain entities: test business rules, validation, computed properties (unit)
+- Use cases: test orchestration logic, error mapping (unit + mocktail)
+- Repositories: test remote/local coordination, caching fallback (unit + mocktail)
+- Blocs/Cubits/Providers: test ALL state transitions (valid AND invalid)
+- Widgets: test rendering, interactions, conditional display with `testWidgets`
+- Widget test finder priority: `find.text` > `find.byType` > `find.byIcon` > `find.bySemanticsLabel` > `find.byKey`
+- Never test widget tree structure — assert what the user sees
+- Use `mocktail` for mocking — mock at repository/data source boundary, never framework internals
+- Use factories for test data — never hardcode values inline
+- Test structure mirrors `lib/` layout: `lib/features/orders/domain/` → `test/features/orders/domain/`
+- Must test: boundary conditions, empty lists, zero quantities, error states, invalid FSM transitions, loading/empty states
+- Integration tests in `integration_test/` at project root
+
 AUDIT TASKS:
-1. Use Glob to find all test files (**/*test*, **/test_*, **/*.spec.*)
+1. Use Glob to find all test files (**/*test*, **/test_*, **/*.spec.*, **/*_test.dart)
 2. Check test naming quality — read a sample of test files and flag meaningless names
 3. Check for AAA pattern in test bodies
 4. Compare source modules to test modules — find untested modules
 5. Use Grep to find hardcoded test data (magic strings/numbers in assertions without factories)
-6. Check if test fixtures/factories exist (conftest.py for Python, test utils for TS)
+6. Check if test fixtures/factories exist (conftest.py for Python, test utils for TS, test/factories/ or test/helpers/ for Flutter)
 7. Look for jest.mock or direct mock usage that should use MSW (for React)
 8. Check if FSM transitions are tested (if FSMs exist)
+9. Flutter: Check if test directory mirrors lib/ structure
+10. Flutter: Grep for `find.byKey` usage — flag if `find.text` or `find.byType` would work instead
+11. Flutter: Check if widget tests use `testWidgets` (not `test`) and call `pumpWidget`
+12. Flutter: Check if Bloc/Cubit state transitions have both valid AND invalid transition tests
+13. Flutter: Check if `test/helpers/` or `test/factories/` exist with reusable test utilities
+14. Flutter: Grep for hardcoded test data in assertions (inline maps, raw strings) without factories
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
@@ -342,6 +430,17 @@ RULES TO AUDIT AGAINST:
 - Accessibility: `<img>` tags must have `alt`, interactive `<div>` should be `<button>`, form inputs need labels
 - Semantic HTML used (nav, main, section, article — not div for everything)
 
+**Security (Flutter-specific):**
+- Tokens stored in `flutter_secure_storage` — never `SharedPreferences` for sensitive data
+- No hardcoded API URLs or environment-specific values — use `--dart-define` or `envied`
+- Never log sensitive data (tokens, passwords, PII) — not even with `print()` or `debugPrint()`
+- Use HTTPS for all API calls
+- `analysis_options.yaml` must enable strict-casts, strict-inference, strict-raw-types
+- Generated files (`.g.dart`, `.freezed.dart`) excluded from analysis in `analysis_options.yaml`
+- No `print()` in production code — use structured logging or `log()` from `dart:developer`
+- All images must have `semanticLabel` for accessibility
+- Interactive elements must use `Semantics` widget where needed
+
 **Dependency hygiene:**
 - All dependencies pinned via lockfile
 - No floating versions in pyproject.toml/package.json
@@ -364,6 +463,14 @@ AUDIT TASKS:
 14. TS/React: Grep for `<img` without `alt=` attribute
 15. TS/React: Grep for `<div onClick` or `<span onClick` (should be semantic button/a elements)
 16. All: Grep for hardcoded secret patterns (`password="`, `secret="`, `api_key="`, `token="` with string values)
+17. Flutter: Check if `analysis_options.yaml` exists and has `strict-casts: true`, `strict-inference: true`, `strict-raw-types: true`
+18. Flutter: Check if `.g.dart` and `.freezed.dart` are excluded from analysis in `analysis_options.yaml`
+19. Flutter: Grep for `SharedPreferences` storing tokens/passwords/secrets (should use `flutter_secure_storage`)
+20. Flutter: Grep for `print(` or `debugPrint(` in lib/ (should use structured logging)
+21. Flutter: Grep for hardcoded URLs (`http://`, `https://`) in lib/ outside config files
+22. Flutter: Check if `pubspec.lock` is committed to the repository
+23. Flutter: Check for `Image(` or `Image.asset(` or `Image.network(` without `semanticLabel` parameter
+24. Flutter: Grep for `// ignore:` or `// noinspection` without justification comment
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |

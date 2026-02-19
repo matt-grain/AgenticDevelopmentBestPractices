@@ -29,7 +29,7 @@ Before planning, load the project context:
 1. **Read `ARCHITECTURE.md`** at the project root — understand the current structure, layers, tech stack, data flow, and domain concepts.
 2. **Read `CLAUDE.md`** at the project root (if it exists) — understand project-specific instructions.
 3. **Read `decisions.md`** (if it exists) — understand past architectural decisions to stay consistent.
-4. **Detect project type** (same logic as other commands: `pyproject.toml` with fastapi, `next.config.*`, `vite.config.*`).
+4. **Detect project type** (same logic as other commands: `pyproject.toml` with fastapi, `next.config.*`, `vite.config.*`, `pubspec.yaml` with flutter).
 5. **Quick directory scan**: Glob for the current module structure to understand what exists.
 
 If `ARCHITECTURE.md` doesn't exist, warn the user: "No ARCHITECTURE.md found. Consider running `/review-architecture` first to establish a baseline. Proceeding without it, but agents may not follow project-specific conventions."
@@ -82,6 +82,20 @@ For each feature, define the implementation tasks following the project's layere
 8. Tests — Component tests (RTL) + hook tests + schema tests
 9. Error boundaries — `error.tsx` for new route segments
 
+**For Flutter features:**
+1. Domain models — Define entities in `features/<name>/domain/entities/` using `@freezed`
+2. Enums — Define enums with enhanced Dart 3.0+ syntax in `features/<name>/domain/enums/`
+3. Repository interfaces — Define abstract classes in `features/<name>/domain/repositories/`
+4. Use cases — One class per business operation in `features/<name>/domain/use_cases/`
+5. DTOs — Data transfer objects in `features/<name>/data/models/` with `toEntity()` mappers
+6. Data sources — Remote (`Dio`) and local (Hive/drift) in `features/<name>/data/data_sources/`
+7. Repository implementations — In `features/<name>/data/repositories/`
+8. State management — Riverpod providers or Bloc/Cubit in `features/<name>/presentation/providers/` or `blocs/`
+9. Widgets — Feature widgets in `features/<name>/presentation/widgets/`
+10. Pages — Thin pages in `features/<name>/presentation/pages/`
+11. FSMs — freezed sealed classes for multi-state flows (if applicable)
+12. Tests — Unit tests (domain + data) + widget tests (presentation) + integration tests
+
 ### 2d — Present Plan to User
 
 Present the plan as a table and ask for confirmation:
@@ -130,6 +144,7 @@ Select the subagent by matching file types to agent definitions in `~/.claude/ag
 | `.py` files in a FastAPI project | `python-fastapi` | `~/.claude/agents/python-fastapi.md` |
 | `.ts/.tsx` files in a Next.js project | `react-nextjs` | `~/.claude/agents/react-nextjs.md` |
 | `.ts/.tsx` files in a Vite project | `vite-react` | `~/.claude/agents/vite-react.md` |
+| `.dart` files in a Flutter project | `flutter` | `~/.claude/agents/flutter.md` |
 | MCP server files | `python-mcp-expert` | `~/.claude/agents/python-mcp-expert.md` |
 | Other | `general-purpose` | (built-in) |
 
@@ -154,8 +169,9 @@ FILES TO MODIFY:
 IMPLEMENTATION ORDER:
 {numbered steps following the layered architecture}
 
-CONSTRAINTS:
-- Follow the project's established patterns exactly. Read existing files in the same layer to match the style.
+CONSTRAINTS (apply rules matching the detected project type):
+
+**Python/FastAPI constraints:**
 - Every endpoint MUST have response_model and status_code.
 - Every service method MUST be fully typed (params + return).
 - Every entity with a status field MUST have an FSM in state_machines/.
@@ -167,13 +183,30 @@ CONSTRAINTS:
 - Test names follow the spec pattern: test_<action>_<scenario>_<expected>.
 - Use factories for test data, never hardcode dicts.
 
+**Flutter constraints:**
+- Follow Clean Architecture: domain/ is pure Dart, presentation/ never imports data/ directly.
+- Use @freezed for domain models — never mutable classes for entities.
+- Use enhanced enums (Dart 3.0+) for all fixed value sets — never raw strings.
+- Any entity with a status field MUST have an FSM using freezed sealed classes.
+- Use Riverpod for state management (or Bloc if project already uses it).
+- Never setState for server data, never fetch in initState, never use ChangeNotifier.
+- Write tests: unit (domain), unit + mocktail (data), widget tests (presentation).
+- Test names follow: 'should <behavior> when <scenario>'.
+- Use factories for test data, never hardcode values inline.
+- Max 5 function parameters — use params class or record beyond that.
+
+**All projects:**
+- Follow the project's established patterns exactly. Read existing files in the same layer to match the style.
+
 AFTER IMPLEMENTING:
 1. Run the project's code quality tools and fix any issues:
    {Python: uv run pyright . && uv run ruff check . --fix && uv run ruff format .}
    {TS: pnpm tsc --noEmit && pnpm eslint . --fix}
+   {Flutter: dart analyze --fatal-infos && dart format . && flutter test}
 2. Run tests and ensure they pass:
    {Python: uv run pytest}
    {TS: pnpm vitest run}
+   {Flutter: flutter test}
 3. Report what you created, what you modified, and any decisions you made.
 ```
 

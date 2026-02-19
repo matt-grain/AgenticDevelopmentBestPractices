@@ -6,7 +6,7 @@ You are a review validation orchestrator. Your job is to verify that ALL finding
 
 1. Read `REVIEW.md` at the project root. If it doesn't exist, tell the user to run `/review-architecture` first and stop.
 2. Check the `**Date:**` field in REVIEW.md. If it is older than 7 days, warn the user: "This review is from {date}. The codebase may have changed. Consider running `/review-architecture` for a fresh audit before validating." Wait for confirmation before proceeding.
-3. Detect the project type using the same logic as `/review-architecture` (check for `pyproject.toml`, `next.config.*`, `vite.config.*`, `package.json`).
+3. Detect the project type using the same logic as `/review-architecture` (check for `pyproject.toml`, `next.config.*`, `vite.config.*`, `pubspec.yaml` with `flutter`, `package.json`).
 3. Parse the **Detailed Findings** tables and the **Migration Plan** checklist from REVIEW.md. Build an internal list of every actionable finding (🔴 Critical and 🟡 Warning severity) and every migration plan item.
 
 ## Step 1 — Build the Verification Matrix
@@ -76,6 +76,13 @@ pnpm eslint .             # Linting (do NOT --fix, just report)
 pnpm vitest run           # Tests pass
 ```
 
+**Flutter:**
+```bash
+dart analyze --fatal-infos          # Static analysis — strict mode
+dart format --set-exit-if-changed . # Formatting (do NOT --fix, just report)
+flutter test                        # Tests pass
+```
+
 **IMPORTANT:** Run tools in **report-only mode** (no `--fix`, no `--write`). This is validation, not fixing. We want to know the truth, not silently auto-fix.
 
 For each tool, capture:
@@ -88,12 +95,12 @@ If a tool is not installed, note it as `⏭️ NOT INSTALLED` and move on.
 Map tool results back to review categories:
 | Tool | Maps to Category |
 |---|---|
-| pyright / tsc | Typing & Style |
-| ruff / eslint | Typing & Style + Architecture (import rules) |
+| pyright / tsc / dart analyze | Typing & Style |
+| ruff / eslint / dart format | Typing & Style + Architecture (import rules) |
 | lint-imports | Architecture & SoC |
 | bandit | Documentation & Debt (security) |
 | radon | Documentation & Debt (complexity) |
-| vitest / pytest | Testing |
+| vitest / pytest / flutter test | Testing |
 
 Tool failures that correspond to review findings should be marked as ❌ FAIL in the validation table, even if the Grep-based check passed. **Tools override Grep.** A finding is only truly fixed when both Grep AND tooling confirm it.
 
@@ -127,6 +134,18 @@ Beyond just running the test suite (pass/fail), perform a systematic coverage co
 | Queries use role/label/text (not test-id) | Grep test files for `getByTestId` — should be rare; `getByRole` / `getByLabelText` should dominate |
 | No implementation testing | Grep for `useState` / `setState` / `className` in test files — these suggest testing internals |
 | MSW used for API mocking | Grep for `msw` or `setupServer` in test utils; flag `jest.mock.*fetch` or `vi.mock.*axios` patterns |
+
+**Step 3d — For Flutter projects, additionally check:**
+
+| Requirement | How to Verify |
+|---|---|
+| Test structure mirrors lib/ | Compare `lib/features/` tree against `test/features/` tree — every source file should have a `_test.dart` counterpart |
+| Widget tests use testWidgets | Grep test files for `testWidgets(` — widget tests should not use plain `test(` |
+| Finder priority followed | Grep test files for `find.byKey` — should be rare; `find.text` / `find.byType` should dominate |
+| Mocktail used for mocking | Grep for `mocktail` in test imports; flag manual mock classes without `Mock` mixin |
+| Bloc/Cubit state transitions tested | For each Bloc/Cubit, check test files for both valid state transitions AND invalid transition attempts |
+| Factories in test/helpers/ or test/factories/ | Check if shared test data factories exist — flag inline hardcoded values in test assertions |
+| Group names match class under test | Grep for `group(` in test files — group name should match the class/widget being tested |
 
 Report results as an additional table in the validation output:
 
@@ -197,11 +216,11 @@ After all agents complete, write `REVIEW_VALIDATION.md` at the project root with
 ### 6. Tooling Verification
 | Tool | Status | Errors | Warnings | Key Issues |
 |------|--------|--------|----------|------------|
-| pyright / tsc | ✅ Pass / ❌ {N} errors | N | N | {summary} |
-| ruff / eslint | ✅ Pass / ❌ {N} errors | N | N | {summary} |
+| pyright / tsc / dart analyze | ✅ Pass / ❌ {N} errors | N | N | {summary} |
+| ruff / eslint / dart format | ✅ Pass / ❌ {N} errors | N | N | {summary} |
 | lint-imports | ✅ Pass / ❌ {N} errors | N | N | {summary} |
 | bandit | ✅ Pass / ❌ {N} errors | N | N | {summary} |
-| vitest / pytest | ✅ Pass / ❌ {N} failures | N | N | {summary} |
+| vitest / pytest / flutter test | ✅ Pass / ❌ {N} failures | N | N | {summary} |
 | radon | ✅ Pass / ⚠️ {N} complex | N | N | {summary} |
 
 ### 7. Migration Plan Items

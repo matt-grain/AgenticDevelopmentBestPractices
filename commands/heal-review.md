@@ -52,6 +52,7 @@ Detect the project type and select the implementation subagent by matching to th
 | `pyproject.toml` contains `fastapi` in dependencies | `python-fastapi` | `~/.claude/agents/python-fastapi.md` |
 | `next.config.ts` / `next.config.js` / `next.config.mjs` exists | `react-nextjs` | `~/.claude/agents/react-nextjs.md` |
 | `vite.config.ts` / `vite.config.js` exists | `vite-react` | `~/.claude/agents/vite-react.md` |
+| `pubspec.yaml` contains `flutter` in dependencies | `flutter` | `~/.claude/agents/flutter.md` |
 | Python project with MCP server patterns | `python-mcp-expert` | `~/.claude/agents/python-mcp-expert.md` |
 | Other Python project | `general-purpose` | (built-in, no custom agent file) |
 | Other JS/TS project | `general-purpose` | (built-in, no custom agent file) |
