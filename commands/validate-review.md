@@ -16,6 +16,12 @@ For each actionable finding from REVIEW.md, define a verification check:
 | Finding Type | How to Verify Completeness |
 |---|---|
 | Missing type annotations | Grep for `def ` without `->` (Python) or `function` without `: ReturnType` (TS) in ALL source files, not just the ones listed in the finding |
+| Services returning raw dicts | Grep for `-> dict`, `-> list[dict`, `-> dict[str` in ALL service files — services must return typed Pydantic schemas |
+| Services receiving Session | Grep for `Session` in method signatures in services/ — `def .*Session` — services must not receive or import Session |
+| Services managing transactions | Grep for `db.commit(`, `db.flush(`, `db.rollback(`, `db.add(` in services/ — transaction management belongs in repositories |
+| Module-level service singletons | Grep for `= <ClassName>()` at module level in services/ — must use Depends() DI chain |
+| Services missing DI constructor | Check if service classes have `__init__` accepting Protocol/ABC repository interfaces — no constructor = DIP violation |
+| Raw strings in FSM transitions | Grep for `transition.*"` in services/ — FSM calls must use enum values, not string literals |
 | Import violations | Re-run the same Grep patterns from the review (e.g., routers importing from repositories) across ALL files in the relevant directory |
 | Missing layer/directory | Glob to confirm the directory exists AND contains the expected files |
 | Raw string comparisons | Grep for string literal comparisons (`== "active"`, `=== "pending"`, etc.) in ALL source files |

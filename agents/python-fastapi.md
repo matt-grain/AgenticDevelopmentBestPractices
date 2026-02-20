@@ -33,7 +33,7 @@ src/<project_name>/
 
 **Routers**: HTTP concerns ONLY. Parse request, call service, return response. Never business logic, DB queries, or direct model imports. Always declare explicit `response_model` and `status_code`. Use `Annotated[T, Depends(...)]` type aliases.
 
-**Services**: ALL business rules, validations, domain decisions. Receive/return Pydantic schemas — never ORM models to callers. Call repositories for data access — never import `Session`. Raise domain-specific exceptions (not `HTTPException`). A service depends on repositories, not other services.
+**Services**: ALL business rules, validations, domain decisions. Receive/return Pydantic schemas — never ORM models or raw `dict`/`list[dict]` to callers. Call repositories for data access — never import `Session` or receive it as parameter. Never manage transactions (`db.commit`, `db.flush`, `db.add`) — that belongs in repositories. Never mutate ORM attributes directly — delegate to repos. Raise domain-specific exceptions (not `HTTPException`). Accept dependencies via `__init__` with Protocol/ABC types — never module-level singletons or global repo imports. A service depends on repositories, not other services.
 
 **Workflows**: Coordinate multiple services for complex processes. Handle transaction boundaries and compensating actions (sagas). May depend on multiple services but never on repositories directly.
 

@@ -73,10 +73,16 @@ Group checks by what's relevant to each file's location:
 
 ### For files in `services/`:
 - Does the service import `Session`, `HTTPException`, or ORM models directly?
+- Does any method receive `Session` as a parameter? (Session belongs in repositories via DI)
+- Does the service call `db.commit()`, `db.flush()`, `db.rollback()`, or `db.add()`? (transaction management belongs in repositories)
+- Does the service mutate ORM model attributes directly? (should delegate to repository methods)
 - Does the service depend on other services? (should use workflows)
 - Are all methods fully typed (params + return)?
-- Does it use raw string comparisons instead of enums?
-- Does it call FSM validation before state transitions?
+- Does any method return `dict`, `list[dict]`, or `dict[str, Any]`? (must return typed Pydantic schemas)
+- Does it pass raw dicts to repository calls? (should pass typed schemas or params objects)
+- Does it use raw string comparisons or raw strings in FSM `transition()` calls? (must use enums)
+- Does the class have an `__init__` accepting repository interfaces? (no constructor = DIP violation)
+- Is there a module-level `service = ServiceClass()` singleton? (must use Depends() DI)
 
 ### For files in `repositories/`:
 - Does the repository contain business logic?

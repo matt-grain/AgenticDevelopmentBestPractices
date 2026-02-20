@@ -78,10 +78,13 @@ async def create_user(payload: UserCreate, db: Session = Depends(get_db)):
 
 ### Services (Business Logic Layer)
 - Contain ALL business rules, validations, and domain decisions.
-- Receive and return Pydantic schemas or domain primitives — never ORM models to callers.
-- Call repositories for data access — never import `Session` or execute queries directly.
+- Receive and return Pydantic schemas or domain primitives — never ORM models or raw `dict`/`list[dict]` to callers.
+- Call repositories for data access — never import `Session`, receive `Session` as parameter, or execute queries directly.
+- Never manage transactions — no `db.commit()`, `db.flush()`, `db.rollback()`, `db.add()`. Transaction management belongs in repositories or Unit of Work.
+- Never mutate ORM model attributes directly — delegate to repository methods.
 - Raise domain-specific exceptions (not `HTTPException`).
 - A service should depend on repositories, not on other services. Use workflows for multi-service orchestration.
+- Service classes must accept dependencies via `__init__` with Protocol/ABC types — never use module-level repo imports or module-level `service = ServiceClass()` singletons. Wire via `Depends()` chains.
 
 ### Workflows (Orchestration Layer)
 - Coordinate multiple services for complex business processes.

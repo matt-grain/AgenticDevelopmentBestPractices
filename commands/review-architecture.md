@@ -59,12 +59,17 @@ RULES TO AUDIT AGAINST:
 - Routers handle HTTP only — no business logic, no DB queries, no direct model imports
 - Routers: every endpoint must declare explicit `response_model` and `status_code`
 - Routers: use `Annotated[T, Depends()]` type aliases for DI — no raw `Depends()` in signatures
-- Services contain business logic — never import Session or execute queries
+- Services contain business logic — never import Session, receive Session as parameter, or execute queries
+- Services must not manage transactions — never call `db.commit()`, `db.flush()`, `db.rollback()`, or `db.add()` (that belongs in repositories or Unit of Work)
+- Services must not mutate ORM model attributes directly — delegate to repository methods
 - Services must raise domain-specific exceptions — never `HTTPException` (that's a router concern)
 - Services must not depend on other services — use workflows/ for multi-service orchestration
 - Services should depend on Protocol/ABC abstractions, not concrete repository classes (DIP)
+- Service classes must accept dependencies via `__init__` — never use module-level repo imports or module-level `service = ServiceClass()` singletons
+- FSM transitions must use enum values — never raw string literals like `"Paid"` or `"Active"`
 - Repositories encapsulate ALL DB queries — only layer that imports ORM models and Session
 - Repositories must use SQLAlchemy 2.0 `select()` style — never legacy `session.query()`
+- Services must return typed Pydantic schemas (e.g., `PaymentOut`) — never raw `dict`, `list[dict]`, or `dict[str, Any]`
 - Schemas separate per purpose: Create, Update, Out, InDB, Patch — never reuse input as output
 - Dependencies wired via Depends() chains: router → service → repository → session
 - Workflows coordinate multiple services for complex processes
@@ -131,12 +136,19 @@ AUDIT TASKS:
 8. Python: Grep for `session.query(` (legacy SQLAlchemy style)
 9. Python: Check if list endpoints return bare `list[` without pagination wrapper
 10. Python: Check if `config.py` uses `BaseSettings` from pydantic-settings
-11. TS/React: Check route directories for missing `error.tsx` boundaries
-12. TS/React: Grep for `process.env.` or `import.meta.env.` outside `lib/env.ts`
-13. TS/React: Check if query keys are centralized or scattered across components
-14. Flutter: Check if each feature has data/, domain/, presentation/ subdirectories
-15. Flutter: Grep for `http.get` or `Dio` calls in presentation/ (should be in data/)
-16. Flutter: Check if repository interfaces exist in domain/repositories/
+11. Python: Grep service files for `-> dict`, `-> list[dict`, `-> dict[str` (services must return typed Pydantic schemas, not raw dicts)
+12. Python: Grep service files for `Session` in method signatures — pattern `def .*Session` in services/ (services must not receive Session — it belongs in repositories via DI)
+13. Python: Grep service files for `db.commit(`, `db.flush(`, `db.rollback(`, `db.add(` (transaction management belongs in repositories or Unit of Work, not services)
+14. Python: Grep service files for module-level instantiation pattern — look for lines matching `<name> = <ClassName>()` at module level outside of functions (should use Depends() DI chain instead)
+15. Python: Grep service files for raw dict literals passed to repository calls — pattern `repo.*data={` or `repo.*create.*{` (should pass typed schemas or params objects)
+16. Python: Check if service classes have `__init__` accepting repository interfaces (Protocol/ABC) — services with no constructor and module-level repo imports violate DIP
+17. Python: Grep for string literals inside `transition(` or `state_machine` calls — pattern `transition.*"` (FSM transitions must use enum values, not raw strings)
+18. TS/React: Check route directories for missing `error.tsx` boundaries
+19. TS/React: Grep for `process.env.` or `import.meta.env.` outside `lib/env.ts`
+20. TS/React: Check if query keys are centralized or scattered across components
+21. Flutter: Check if each feature has data/, domain/, presentation/ subdirectories
+22. Flutter: Grep for `http.get` or `Dio` calls in presentation/ (should be in data/)
+23. Flutter: Check if repository interfaces exist in domain/repositories/
 
 Return your findings as a markdown table:
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
