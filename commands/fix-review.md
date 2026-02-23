@@ -343,11 +343,28 @@ If any tool reports errors:
 
 **Note:** Some tools may not be installed yet in the project. If a tool command fails with "not found", skip it and note it in the fix log. Do not install tools yourself — flag it as a migration plan item.
 
+### Plan Completion Check (per phase)
+
+After the tooling gate passes, run a holistic check of the entire phase against the plan. This catches cross-unit interference (a later fix undoing an earlier one) and units that were skipped entirely.
+
+1. **Reconcile plan vs. reality:** For each fix unit in this phase, verify it was actually dispatched and completed. Flag any unit that was skipped or forgotten.
+2. **Re-run ALL violation Grep patterns** for this phase's fix units — not individually (that was Step 2c), but all at once. A fix that passed its individual check may have been undone by a later subagent in the same phase.
+3. **File count reconciliation:** Sum the total unique files listed across all fix units in this phase. Compare against the total files actually modified (use `git diff --name-only` if in a git repo, or the subagent reports). Flag any discrepancy.
+4. **If misses are found:**
+   - List the specific fix units and files that still have violations
+   - Re-dispatch a targeted subagent for ONLY the missed files (max 1 retry per phase)
+   - Re-run the Grep check after the retry
+   - Re-run tooling (lint + type check) on ONLY the retried files to catch any issues the retry introduced
+   - If still failing, log as partial and continue — do not loop
+
+This check is fast (just Grep + file count) but catches the most common failure mode: subagents that report success but skip files, or fixes that interfere with each other within a phase.
+
 ### Phase Checkpoint
 
-After the tooling gate passes, report to the user:
+After the plan completion check passes, report to the user:
 ```
 Phase {N} complete: {X}/{Y} fix units fully verified.
+Plan completion check: ✅ all fix units confirmed / ⚠️ {N} fix units needed retry / ❌ {N} still partial
 Tooling gate: ✅ all checks pass / ⚠️ {N} issues fixed by auto-formatter / ❌ {N} issues need attention
 {List any partial fixes with details}
 Proceeding to Phase {N+1} with {Z} fix units. Continue?
