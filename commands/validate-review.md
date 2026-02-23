@@ -8,6 +8,7 @@ You are a review validation orchestrator. Your job is to verify that ALL finding
 2. Check the `**Date:**` field in REVIEW.md. If it is older than 7 days, warn the user: "This review is from {date}. The codebase may have changed. Consider running `/review-architecture` for a fresh audit before validating." Wait for confirmation before proceeding.
 3. Detect the project type using the same logic as `/review-architecture` (check for `pyproject.toml`, `next.config.*`, `vite.config.*`, `pubspec.yaml` with `flutter`, `package.json`).
 3. Parse the **Detailed Findings** tables and the **Migration Plan** checklist from REVIEW.md. Build an internal list of every actionable finding (🔴 Critical and 🟡 Warning severity) and every migration plan item.
+4. **Check for FIX_PLAN.md** at the project root. If it exists, parse the **Deferred Items** section to build a deferred list. Any finding or migration plan item that matches a deferred item will be marked `⏭️ DEFERRED` instead of `❌ FAIL`. Deferred items are **excluded from the completion percentage** — they were intentionally postponed, not forgotten. They are still listed in the report for visibility.
 
 ## Step 1 — Build the Verification Matrix
 
@@ -50,7 +51,8 @@ Each agent must return results as:
 | ✅ PASS | {finding} | {N files checked} | 0 | Fully resolved |
 | ⚠️ PARTIAL | {finding} | {N files checked} | {list} | Fixed in some files but not all |
 | ❌ FAIL | {finding} | {N files checked} | {list} | Not addressed |
-| ⏭️ SKIPPED | {finding} | — | — | Not applicable / deferred |
+| ⏭️ DEFERRED | {finding} | — | — | Explicitly deferred in FIX_PLAN.md (excluded from completion %) |
+| ⏭️ SKIPPED | {finding} | — | — | Not applicable to this project |
 ```
 
 ## Step 3 — Run Tooling Verification
@@ -184,16 +186,18 @@ After all agents complete, write `REVIEW_VALIDATION.md` at the project root with
 
 ## Validation Summary
 
-| Category | Findings Checked | ✅ Pass | ⚠️ Partial | ❌ Fail | Completion |
-|----------|-----------------|---------|------------|---------|------------|
-| Architecture & SoC | N | N | N | N | N% |
-| Typing & Style | N | N | N | N | N% |
-| State & Enums | N | N | N | N | N% |
-| Testing | N | N | N | N | N% |
-| Documentation & Debt | N | N | N | N | N% |
-| Tooling Checks | N | N | N | N | N% |
-| **Migration Plan** | N | N | N | N | N% |
-| **TOTAL** | N | N | N | N | **N%** |
+| Category | Findings Checked | ✅ Pass | ⚠️ Partial | ❌ Fail | ⏭️ Deferred | Completion* |
+|----------|-----------------|---------|------------|---------|-------------|------------|
+| Architecture & SoC | N | N | N | N | N | N% |
+| Typing & Style | N | N | N | N | N | N% |
+| State & Enums | N | N | N | N | N | N% |
+| Testing | N | N | N | N | N | N% |
+| Documentation & Debt | N | N | N | N | N | N% |
+| Tooling Checks | N | N | N | N | N | N% |
+| **Migration Plan** | N | N | N | N | N | N% |
+| **TOTAL** | N | N | N | N | N | **N%** |
+
+*Completion % = Pass / (Pass + Partial + Fail). Deferred items are excluded from the denominator.
 
 ## Overall Verdict
 
@@ -236,7 +240,7 @@ After all agents complete, write `REVIEW_VALIDATION.md` at the project root with
 
 ## Remaining Gaps (for /heal-review)
 
-{List only ⚠️ PARTIAL and ❌ FAIL items, grouped by category, with enough context for the healing command to act on them:}
+{List only ⚠️ PARTIAL and ❌ FAIL items, grouped by category, with enough context for the healing command to act on them. Do NOT include ⏭️ DEFERRED items here — they are listed separately below.}
 
 ### Gap 1: {short title}
 - **Category:** {category name}
@@ -246,6 +250,14 @@ After all agents complete, write `REVIEW_VALIDATION.md` at the project root with
 - **Files affected:** {explicit list}
 
 ### Gap 2: ...
+
+## Deferred Items (not in scope for /heal-review)
+
+{List all ⏭️ DEFERRED items from FIX_PLAN.md. These are intentionally postponed and should NOT trigger `/heal-review`. They will be addressed in a future release cycle.}
+
+| Item | Reason for Deferral |
+|------|-------------------|
+| {item} | {reason from FIX_PLAN.md} |
 ```
 
 ## Step 6 — Report to User
