@@ -67,6 +67,15 @@ Group related findings into logical fix units:
 
 **For mixed projects:** Tag each fix unit as `backend` or `frontend`. Assign the correct subagent_type.
 
+### Batch Size Validation (mandatory before proceeding)
+
+After grouping, scan every fix unit and count its files. If ANY unit exceeds 8 files:
+1. Split it into sub-units of 5-8 files each (e.g., `2.4a`, `2.4b`)
+2. Add a dependency: each sub-unit depends on the previous one (sequential execution)
+3. Keep the same HOW TO FIX instructions across sub-units
+
+Do NOT proceed to Step 3 until every fix unit has 8 or fewer files. Large batches cause subagents to skip files and lose context.
+
 ## Step 3 — Write Detailed Fix Instructions
 
 For EACH fix unit, write a complete HOW TO FIX section. This is the most important part — the quality of these instructions directly determines whether the fix succeeds.
