@@ -1,6 +1,20 @@
 # Plan & Implement Release Features
 
-You are a release planning orchestrator. Your job is to take a set of issues (from GitHub Issues, Jira, or user-provided descriptions), create an implementation plan, and dispatch the right agents to implement each feature — with full architectural context and rule enforcement.
+You are a release planning **orchestrator**. Your job is to take a set of issues (from GitHub Issues, Jira, or user-provided descriptions), create an implementation plan, and dispatch the right agents to implement each feature — with full architectural context and rule enforcement.
+
+## CRITICAL — Delegation Rule
+
+**You MUST NOT write, edit, or modify any source code yourself.** You are an orchestrator, not an implementer. ALL code changes MUST be delegated to a subagent via the `Task` tool with the correct `subagent_type` (detected in Step 1).
+
+Your only allowed actions:
+- **Read** files (to understand context, plan implementation, verify output)
+- **Grep/Glob** (to scan codebase structure, find existing patterns)
+- **Bash** (to run `gh issue view`, tooling gates, tests)
+- **Task** (to dispatch implementation work to subagents)
+- **TaskCreate/TaskUpdate** (to track progress)
+- **Write** (ONLY for `ARCHITECTURE.md` and `decisions.md` updates — never source code)
+
+If you catch yourself about to use Edit/Write on a `.py`, `.ts`, `.tsx`, `.dart`, or any source file — STOP and dispatch a subagent instead.
 
 ## Step 0 — Gather Inputs
 
@@ -135,7 +149,9 @@ Use TaskCreate for each feature:
 
 Then create sub-tasks for each implementation step (model, schema, service, etc.) with proper `blockedBy` dependencies.
 
-### 3b — Select and Dispatch Subagent
+### 3b — Select and Dispatch Subagent (MANDATORY — do NOT implement yourself)
+
+**REMINDER: You MUST use the Task tool here. Do NOT edit source files directly. You are the orchestrator — the subagent does the coding.**
 
 Select the subagent by matching file types to agent definitions in `~/.claude/agents/`:
 
@@ -147,6 +163,11 @@ Select the subagent by matching file types to agent definitions in `~/.claude/ag
 | `.dart` files in a Flutter project | `flutter` | `~/.claude/agents/flutter.md` |
 | MCP server files | `python-mcp-expert` | `~/.claude/agents/python-mcp-expert.md` |
 | Other | `general-purpose` | (built-in) |
+
+**Mixed project features:** If a feature spans both backend and frontend (e.g., "add invoice export" needs a new API endpoint + a new React page), split into TWO subagent dispatches:
+1. Backend first (API endpoint, service, schema, tests) → `python-fastapi`
+2. Frontend second (page, hooks, components, tests) → `react-nextjs`
+Never send `.tsx` files to a Python agent or `.py` files to a React agent.
 
 The subagent prompt MUST include:
 
@@ -182,6 +203,24 @@ CONSTRAINTS (apply rules matching the detected project type):
 - Write tests for every public service method (happy + error path) and every router endpoint.
 - Test names follow the spec pattern: test_<action>_<scenario>_<expected>.
 - Use factories for test data, never hardcode dicts.
+
+**React/Next.js constraints:**
+- NEVER access `process.env` directly — import from `lib/env.ts` (Zod-validated).
+- NEVER store server-fetched data in `useState` — use `useApiQuery` or TanStack Query hooks.
+- NEVER fetch data in `useEffect` — use data-fetching hooks (`useApiQuery`, `useSWR`, TanStack Query).
+- Every `useEffect` MUST have a `// WHY:` comment explaining its purpose.
+- Components with 3+ `useState` calls MUST extract a custom hook (`use<Feature>()`).
+- Filter/sort/pagination state MUST use URL params (`nuqs`/`useSearchParams`), not `useState`.
+- Pages are thin orchestrators (under 50 lines) — extract form logic into `_components/`.
+- One exported component per file. Props interface named `<ComponentName>Props`.
+- Every route segment that fetches data MUST have an `error.tsx` boundary.
+- NEVER use `any` or `as any` without justification — use `unknown` with narrowing, or `satisfies`.
+- Use `import type` for type-only imports.
+- Mutations go through `useMutation` hooks, never raw `fetch` in event handlers.
+- Test with MSW for API mocking (network-level), not `vi.mock` at module level.
+- Test names follow: `it("should <behavior> when <scenario>")`.
+- Never assert CSS class names — assert behavior, text, roles, accessible attributes.
+- No `console.log`/`console.warn` in production — use structured logger.
 
 **Flutter constraints:**
 - Follow Clean Architecture: domain/ is pure Dart, presentation/ never imports data/ directly.

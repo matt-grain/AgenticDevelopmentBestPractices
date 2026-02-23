@@ -1,13 +1,28 @@
 # Heal Architecture Review Gaps
 
-You are a review healing orchestrator. Your job is to fix remaining gaps identified in `REVIEW_VALIDATION.md` using a self-healing loop: implement fixes via specialized subagents, then validate each fix, and rework if validation fails.
+You are a review healing **orchestrator**. Your job is to fix remaining gaps identified in `REVIEW_VALIDATION.md` using a self-healing loop: implement fixes via specialized subagents, then validate each fix, and rework if validation fails.
+
+## CRITICAL — Delegation Rule
+
+**You MUST NOT write, edit, or modify any source code yourself.** You are an orchestrator, not an implementer. ALL code changes MUST be delegated to a subagent via the `Task` tool with the correct `subagent_type` (detected in Step 1).
+
+Your only allowed actions:
+- **Read** files (to understand context, verify fixes)
+- **Grep/Glob** (to scan for patterns, validate results)
+- **Bash** (to run tooling — linters, tests, formatters)
+- **Task** (to dispatch implementation work to subagents)
+- **TaskCreate/TaskUpdate** (to track progress)
+- **Write** (ONLY for `REVIEW.md` and `REVIEW_VALIDATION.md` — never source code)
+
+If you catch yourself about to use Edit/Write on a `.py`, `.ts`, `.tsx`, `.dart`, or any source file — STOP and dispatch a subagent instead.
 
 ## Step 0 — Pre-flight Checks
 
 1. Read `REVIEW_VALIDATION.md` at the project root. If it doesn't exist, tell the user to run `/validate-review` first and stop.
 2. Read `REVIEW.md` to get the original findings and full context.
-3. If the verdict in REVIEW_VALIDATION.md is "ALL CLEAR", tell the user there's nothing to heal and stop.
-4. Parse the **Remaining Gaps** section to build the full gap list.
+3. Read `FIX_PLAN.md` (if it exists) to recover the original HOW TO FIX instructions. When a gap corresponds to a fix unit in FIX_PLAN.md, reuse those instructions in the subagent prompt — they were already detailed and reviewed. If the original instructions failed, refine them based on the validation feedback (what specifically went wrong).
+4. If the verdict in REVIEW_VALIDATION.md is "ALL CLEAR", tell the user there's nothing to heal and stop.
+5. Parse the **Remaining Gaps** section to build the full gap list.
 
 ## Step 0b — Scope Selection
 
@@ -57,9 +72,16 @@ Detect the project type and select the implementation subagent by matching to th
 | Other Python project | `general-purpose` | (built-in, no custom agent file) |
 | Other JS/TS project | `general-purpose` | (built-in, no custom agent file) |
 
-**Mixed projects**: use different subagent types for different gaps based on which files are affected.
+**Mixed projects**: detect ALL matching project types and record them. You will use different subagent types for different gaps based on which files are affected.
 
-Verify the selected agent file exists by reading it. If missing, fall back to `general-purpose` and warn the user.
+**Mixed project dispatch protocol:**
+1. Tag each gap with its target: `backend` (`.py` files) or `frontend` (`.ts`/`.tsx` files) or `shared` (docs, configs)
+2. Backend gaps → dispatch with the backend subagent (e.g., `python-fastapi`)
+3. Frontend gaps → dispatch with the frontend subagent (e.g., `react-nextjs` or `vite-react`)
+4. **NEVER** send `.tsx`/`.ts` files to a Python agent or `.py` files to a React agent
+5. In the gap summary table (Step 0b), add an **Agent** column showing which subagent_type will handle each gap
+
+Verify the selected agent files exist by reading them. If missing, fall back to `general-purpose` and warn the user.
 
 ## Step 2 — Create Task Plan
 
@@ -88,6 +110,14 @@ Using the TaskCreate tool, create tasks for the healing work. For each **selecte
 
 Group related gaps when they share the same files or pattern (e.g., "missing type annotations" across 10 files = 1 fix task + 1 validate task, not 10 pairs).
 
+**Max batch size**: If a gap affects more than 8 files, split into multiple fix tasks of 5-8 files each. Large batches cause subagents to skip files.
+
+**Test files in scope**: If the gap exists in test files too (e.g., raw string enums in test fixtures), include them in the fix task.
+
+**Micro-fixes get their own batch**: Trivial 1-5 line changes (adding a type annotation, replacing a string with an enum, adding `Final[T]`, removing `# type: ignore`) should be grouped into a dedicated micro-fix task, separate from larger architectural changes. These mechanical changes get lost when mixed with complex multi-file refactors.
+
+**Two-step fixes need sequencing**: When a fix requires creating something new before updating existing code (e.g., "create a repository method, then update the service to call it"), split into two sequential fix tasks with explicit dependency. Never combine "create X" and "update Y to use X" in a single subagent dispatch.
+
 After creating all tasks, present the task list to the user and ask: **"I've created {N} fix tasks and {N} validation tasks for the {N} remaining gaps. Ready to start the healing loop?"**
 
 Wait for user confirmation before proceeding.
@@ -96,21 +126,32 @@ Wait for user confirmation before proceeding.
 
 Process tasks in order. For each gap:
 
-### 3a — Implementation
+### 3a — Implementation (MANDATORY subagent delegation — do NOT implement yourself)
+
+**REMINDER: You MUST use the Task tool here. Do NOT edit source files directly. You are the orchestrator — the subagent does the coding.**
+
 - Before dispatching, read `ARCHITECTURE.md` and `CLAUDE.md` at the project root (if they exist) to gather project-specific context.
-- Use the Task tool with the detected subagent_type to execute the fix
+- Use the Task tool with the detected `subagent_type` from Step 1 to execute the fix
 - The subagent prompt must include:
   - Relevant project context from ARCHITECTURE.md (tech stack, layer responsibilities, patterns)
   - Any project-specific instructions from CLAUDE.md
   - The full gap description from the task
   - The project's rules context (reference the rules directory path: `C:\Users\MatthieuBoujonnier\.claude\rules\`)
-  - Explicit instruction: "Fix ALL files listed. Apply the pattern consistently. Do not leave any file unmodified."
+  - **HOW TO FIX**: Concrete, unambiguous step-by-step transformation instructions. NOT "fix the issue" but specific code changes.
+    **Python examples:** "Replace `import X` with `import Y`", "Move function Z to file W", "Change `except E: log` to `except E: raise`", "Replace `data: dict` with `data: ItemCreate`"
+    **React/TS examples:** "Replace `process.env.NEXT_PUBLIC_API_URL` with `import { env } from '@/lib/env'`", "Extract useState+useEffect fetch into `useApiQuery()`", "Add `error.tsx` with Error component", "Replace `as any` with proper typed interface"
+    For two-step fixes (create then update), number steps explicitly: "Step 1: CREATE method X in repo. Step 2: UPDATE service to CALL method X."
+  - **For file splitting**: Include a SPLIT PLAN with exact target filenames and what moves where. State: "The original file MUST be shorter after splitting. If it's the same length or longer, the split failed. Every extracted file must also be under 200 lines."
+  - Explicit instruction: "Fix ALL files listed. Apply the pattern consistently. Do not leave any file unmodified. Do NOT add wrapper code or extra abstractions — apply the direct fix."
 - Mark Task A as in_progress, then completed when the subagent finishes
 
 ### 3b — Validation
 - After the implementation subagent completes, validate the fix yourself (do NOT delegate validation to the same subagent that did the fix)
 - Use Grep/Glob/Read to verify the violation pattern no longer appears in ANY file
 - Check that the fix follows the project's established patterns (no black boxes)
+- **Regression check**: For file-splitting gaps, verify the file is SHORTER than before AND all extracted files are under 200 lines. If it grew, or an extracted file exceeds 200 lines, the fix failed.
+- **Two-step wiring check**: For fixes that create new code and update callers, verify BOTH sides: (a) the new code exists, (b) the caller actually uses it. A common failure mode is creating the new method but not wiring the caller.
+- **No new violations**: Grep modified files for new anti-patterns (`Any`, `# type: ignore`, bare `except:`, `print()`)
 - Mark Task B as in_progress during validation
 
 ### 3c — Rework if Needed (max 2 rework cycles per gap)
