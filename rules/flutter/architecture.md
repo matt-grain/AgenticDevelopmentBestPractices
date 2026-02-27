@@ -152,3 +152,49 @@ presentation/ → domain/ ← data/
 - `domain/` depends on NOTHING (pure Dart)
 - `core/` is shared infrastructure — any layer can use it
 - `shared/` is shared UI — only `presentation/` uses it
+
+## Route Completeness
+
+Every navigation target in the app MUST have a corresponding route definition.
+
+### Rules
+- **Dashboard links → routes**: If a dashboard or list page navigates to `/adjustments/:id`, the router MUST define that route.
+- **CRUD completeness**: If you have a list page (`/orders`) and a create page (`/orders/new`), you likely need detail (`/orders/:id`) and possibly edit (`/orders/:id/edit`).
+- **Route guards**: Every route that requires auth must be protected. Don't rely on UI hiding — enforce at the router level.
+- **Error routes**: Include a fallback 404 route for undefined paths.
+
+### Verification
+When adding navigation (e.g., `context.push('/adjustments/$id')`), verify:
+1. The route exists in `router.dart` or `app_router.dart`
+2. The route has the correct path parameters
+3. The destination page is imported and instantiated correctly
+
+```dart
+// BAD — navigation to undefined route (runtime crash)
+onTap: () => context.push('/adjustments/${item.id}'),  // ❌ Route not defined
+
+// GOOD — route exists and matches
+// In router.dart:
+GoRoute(
+  path: '/adjustments/:id',
+  builder: (context, state) => AdjustmentDetailPage(
+    id: state.pathParameters['id']!,
+  ),
+),
+```
+
+### Path Parameter Safety
+- **Never use unguarded `!` on path parameters.** The parameter might be missing if the route is misconfigured.
+- Use `int.tryParse` with fallback, or handle null explicitly.
+
+```dart
+// BAD — crash if id is null or not an int
+final id = int.parse(state.pathParameters['id']!);  // ❌
+
+// GOOD — safe parsing with error handling
+final idStr = state.pathParameters['id'];
+if (idStr == null) return const NotFoundPage();
+final id = int.tryParse(idStr);
+if (id == null) return const NotFoundPage();
+return AdjustmentDetailPage(id: id);
+```

@@ -107,6 +107,7 @@ Group checks by what's relevant to each file's location:
 - Does it use `setState` for server data? (should use Riverpod/Bloc)
 - Does it use `ChangeNotifier`? (should use Riverpod/Bloc)
 - Does it have `ref.read` in `build()` method? (should be `ref.watch`)
+- Does a detail page mutate a list provider? (e.g., `ref.read(ordersListProvider.notifier)` in a detail page — cross-mutation violation)
 
 ### For files in `features/*/domain/` (Flutter):
 - Does it import Flutter packages? (domain must be pure Dart)
@@ -116,6 +117,12 @@ Group checks by what's relevant to each file's location:
 ### For files in `features/*/data/` (Flutter):
 - Do DTOs map to domain entities? (never expose DTOs above data layer)
 - Does it use raw string comparisons instead of enums?
+- Do DTOs have `Map<String, dynamic>?` fields for nested objects? (should use typed nested DTOs)
+
+### For files in `router/` or `*_router.dart` (Flutter):
+- Does it use unguarded `!` on `state.pathParameters['id']`? (should use `tryParse` with fallback)
+- Are all navigation targets (from UI files with `context.push`/`context.go`) defined as routes?
+- Is there a fallback 404 route?
 
 ### For files in `state_machines/` or `enums/`:
 - Are all transitions tested? (check for corresponding test file)

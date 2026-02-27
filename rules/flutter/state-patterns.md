@@ -40,6 +40,34 @@ paths: "**/*.dart"
 - Use `autoDispose` by default — only omit when state must survive navigation.
 - Family providers for parameterized queries (e.g., `orderProvider(orderId)`).
 
+### Provider Mutation Boundaries
+- **Detail pages MUST NOT mutate list providers directly.** A detail page (e.g., `OrderDetailPage`) should not call `ref.read(ordersListProvider.notifier).removeOrder(id)`. Instead:
+  - The detail provider invalidates itself after mutation
+  - The list provider uses `ref.listen` or auto-refresh to stay in sync
+  - OR use a shared `OrderService` that both providers depend on
+- **One provider per concern.** Don't have a detail page reaching into another feature's list state.
+- **Mutations go through the owning provider.** If you need to update a list after a detail action, the detail page should call its own provider's method, which handles cache invalidation.
+
+```dart
+// BAD — detail page mutating list provider directly
+class OrderDetailPage extends ConsumerWidget {
+  void _deleteOrder(WidgetRef ref) {
+    ref.read(orderDetailProvider(id).notifier).delete();
+    ref.read(ordersListProvider.notifier).removeOrder(id); // ❌ Cross-mutation
+    context.pop();
+  }
+}
+
+// GOOD — detail provider handles invalidation
+class OrderDetailPage extends ConsumerWidget {
+  void _deleteOrder(WidgetRef ref) {
+    ref.read(orderDetailProvider(id).notifier).delete(); // ✅ Own provider
+    // List refreshes via ref.listen or next navigation
+    context.pop();
+  }
+}
+```
+
 ```dart
 // features/orders/presentation/providers/orders_provider.dart
 @riverpod

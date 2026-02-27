@@ -12,6 +12,33 @@ paths: "**/*.dart"
 - Never use `dynamic` — use `Object` and type-check, or use generics. If `dynamic` is truly unavoidable, add a comment explaining why.
 - Use `typedef` for complex function signatures.
 
+### DTO Nested Objects — No `Map<String, dynamic>`
+- **NEVER use `Map<String, dynamic>` or `Map<String, dynamic>?` for nested objects in DTOs.** This defers type checking to runtime and causes fragile `json['key']` access patterns.
+- Create dedicated DTOs for nested objects and compose them.
+- Use `@JsonKey` with `fromJson`/`toJson` for complex mappings.
+
+```dart
+// BAD — fragile runtime access
+@freezed
+class AdjustmentDto with _$AdjustmentDto {
+  const factory AdjustmentDto({
+    required String id,
+    Map<String, dynamic>? location,  // ❌ What fields does location have?
+    Map<String, dynamic>? item,      // ❌ Runtime crash waiting to happen
+  }) = _AdjustmentDto;
+}
+
+// GOOD — typed nested DTOs
+@freezed
+class AdjustmentDto with _$AdjustmentDto {
+  const factory AdjustmentDto({
+    required String id,
+    LocationDto? location,  // ✅ Typed, IDE autocomplete, compile-time safety
+    ItemDto? item,          // ✅ Clear contract
+  }) = _AdjustmentDto;
+}
+```
+
 ```dart
 // GOOD
 Future<List<Order>> getOrders({required OrderFilter filter}) async { ... }

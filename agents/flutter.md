@@ -189,13 +189,22 @@ sealed class CheckoutState with _$CheckoutState {
 }
 ```
 
-# Module Size
+# Module Size — HARD LIMITS (non-negotiable)
 
-- Files: max 200 lines (excluding imports and generated code).
-- Functions: max 30 lines. Classes: max 150 lines.
-- Max 5 function parameters. Cyclomatic complexity: below 10.
+These limits are strictly enforced. If you find yourself exceeding them, STOP and refactor before continuing.
+
+- **Files: max 200 lines** (excluding imports and generated code). If a file approaches 150 lines, plan extraction.
+- **Functions/methods: max 30 lines.** Break into smaller named functions. A 148-line `build()` method is NEVER acceptable.
+- **Classes: max 150 lines.** Extract helper widgets, use composition.
+- **Max 5 function parameters.** Use a params class or record beyond that.
+- **Cyclomatic complexity: below 10.** Use guard clauses, extract conditions to named booleans.
 - No catch-all `utils.dart` — split into topic-specific files.
 - Never edit generated files (`.g.dart`, `.freezed.dart`).
+
+**When creating a page with forms or lists:**
+- Extract form rows/list items into separate widget files immediately — don't wait until the file is too long.
+- A `CreateOrderPage` should be ~50-100 lines orchestrating extracted `_OrderFormFields`, `_LineItemList`, `_SubmitButton` widgets.
+- Complex forms (5+ fields) should extract each logical section into a widget.
 
 # Navigation
 
@@ -204,6 +213,13 @@ sealed class CheckoutState with _$CheckoutState {
 - Typed route parameters — not raw `Map<String, String>`.
 - Protect routes with redirect guards (auth, role-based), not widget-level checks.
 - Pass IDs as route params, not full objects — fetch fresh data on the destination page.
+
+**Route completeness**: When adding navigation (e.g., `context.push('/adjustments/$id')`):
+1. Verify the route exists in the router configuration
+2. Add the route if missing — never leave dangling navigation
+3. Use safe parameter parsing: `int.tryParse(state.pathParameters['id'] ?? '') ?? 0` — never unguarded `!`
+
+**Path parameter safety**: Never use `state.pathParameters['id']!` — the parameter might be null if misconfigured. Always handle the null case with a fallback or error page.
 
 # API Client
 
