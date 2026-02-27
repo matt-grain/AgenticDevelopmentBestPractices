@@ -1,257 +1,331 @@
-## Best practices for Claude Code
+## Best Practices for Claude Code Agentic Workflows
 
-### Memory management
+This document describes a complete development workflow using Claude Code commands, rules, and agents for building software with architectural discipline.
 
-#### The Context Priority Hierarchy
+---
 
-| Source                    | Priority Level     | Implication                           |  
-|---------------------------|--------------------|---------------------------------------|
-| CLAUDE.md                 | High               | Treated as authoritative instructions |  
-| Rules Directory           | High               | Same weight as CLAUDE.md              |   
-| Skills                    | Medium (on-demand) | Loaded only when triggered            |   
-| Conversation history      | Variable           | Decays over long sessions             |   
-| File contents (Read tool) | Standard           | Normal context, no special weight     |  
+## Quick Reference
 
-#### CLAUDE.md
+### Two Workflows
 
-The over-specified CLAUDE.md. If your CLAUDE.md is too long, Claude ignores half of it because important rules get lost in the noise.
-> Fix: Ruthlessly prune. If Claude already does something correctly without the instruction, delete it or convert it to a hook.
+| Workflow | Purpose | Commands |
+|----------|---------|----------|
+| **Development** | Build features from issues | `/plan-release` → `/implement-phase` → `/check` |
+| **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` → `/heal-review` |
 
-#### Rules
+### All Commands
 
-Rules are loaded automatically when Claude code reads a file and the path matching is true
+| Command | Purpose | Output |
+|---------|---------|--------|
+| `/plan-release` | Design features, split into phases | `IMPLEMENTATION_PLAN.md` |
+| `/implement-phase N` | Execute a specific phase | Code + `IMPLEMENTATION_STATUS.md` |
+| `/check` | Pre-merge architectural gate (read-only) | Inline verdict |
+| `/review-architecture` | Full codebase audit | `REVIEW.md` |
+| `/plan-fix` | Plan fixes with HOW TO FIX | `FIX_PLAN.md` |
+| `/fix-review` | Execute fix plan | `REVIEW_FIX_LOG.md` |
+| `/validate-review` | Independent verification | `REVIEW_VALIDATION.md` |
+| `/heal-review` | Fix remaining gaps | Updated artifacts |
+
+---
+
+## Development Workflow
+
+Build features from GitHub Issues or Jira tickets with phased implementation and verification.
+
+### The Flow
 
 ```
+/plan-release GH#301, GH#404
+        │
+        ▼
+IMPLEMENTATION_PLAN.md (phases, tasks, dependencies)
+        │
+        ├─ /implement-phase 1 → /check → commit
+        ├─ /implement-phase 2 → /check → commit
+        └─ /implement-phase 3 → /check → commit
+        │
+        ▼
+IMPLEMENTATION_STATUS.md (progress, gaps, next steps)
+```
+
+### `/plan-release` — Design & Phase Splitting
+
+Takes issue references, fetches details, creates a phased implementation plan:
+
+```
+/plan-release GH#301, GH#404           # GitHub issues
+/plan-release JIRA-205, GH#301         # Mixed sources
+/plan-release "Add invoice export"     # Free-text
+```
+
+What it does:
+1. Fetches issue details via `gh issue view`
+2. Reads `ARCHITECTURE.md` for project context
+3. Analyzes scope (layers touched, files needed)
+4. Splits into ordered phases with dependencies
+5. Writes `IMPLEMENTATION_PLAN.md`
+
+**Output**: `IMPLEMENTATION_PLAN.md` with phases, tasks per phase, file lists, and agent assignments. Review and edit before implementing.
+
+### `/implement-phase N` — Execute a Phase
+
+Implements a specific phase from the plan:
+
+```
+/implement-phase 1                     # Implement Phase 1
+/implement-phase 2                     # After Phase 1 is done
+```
+
+What it does:
+1. Reads `IMPLEMENTATION_PLAN.md`, parses target phase
+2. Checks dependencies (earlier phases complete?)
+3. Dispatches correct subagent per task (flutter, python-fastapi, etc.)
+4. Runs tooling gate (type check, lint, tests)
+5. Verifies against plan (all files created? tests exist?)
+6. Updates `IMPLEMENTATION_PLAN.md` with completion status
+7. Writes/updates `IMPLEMENTATION_STATUS.md` with:
+   - What was done ✅
+   - What's partial ⚠️
+   - What's missing ❌
+   - Next phase preview
+
+### `/check` — Pre-Merge Gate
+
+Fast, read-only architectural check on changed files. Run before every merge:
+
+```
+/check                                 # Scans git diff against base branch
+```
+
+What it checks:
+- Tooling (pyright, ruff, eslint, tsc, dart analyze)
+- Tests pass
+- Architectural violations in changed files
+- Missing companions (new endpoint without test, new entity without FSM)
+
+**Verdict**: READY TO MERGE / REVIEW BEFORE MERGING / DO NOT MERGE
+
+**Safe to run anytime** — completely read-only, never modifies files.
+
+---
+
+## Release Gate Workflow
+
+Audit the entire codebase against architectural rules, fix all violations, verify completeness. Run at release milestones.
+
+### The Flow
+
+```
+/review-architecture
+        │
+        ▼
+    REVIEW.md (findings, migration plan)
+        │
+        ▼
+    /plan-fix
+        │
+        ▼
+    FIX_PLAN.md (file lists, HOW TO FIX per unit)
+        │
+        ├─ User reviews & edits
+        │
+        ▼
+    /fix-review
+        │
+        ▼
+    /validate-review
+        │
+        ├─ ALL CLEAR? → done
+        │
+        ▼ (if gaps)
+    /heal-review → /validate-review → done or manual intervention
+```
+
+### `/review-architecture` — Full Audit
+
+5 parallel agents scan the entire codebase against your rules:
+
+```
+/review-architecture                   # Takes 10+ minutes
+```
+
+**Output**: `REVIEW.md` with:
+- Executive summary with conformance scores
+- Detailed findings (🔴 Critical, 🟡 Warning, 🔵 Note)
+- Migration plan with phased checklist
+
+### `/plan-fix` — Plan Before Fixing
+
+Reads findings, expands to complete file lists, writes concrete fix instructions:
+
+```
+/plan-fix                              # Reads REVIEW.md, writes FIX_PLAN.md
+```
+
+What it does:
+1. For each finding, expands examples to full file list (via Grep/Glob)
+2. Inspects 2-3 affected files to understand the violation
+3. Finds reference examples of the correct pattern
+4. Writes concrete HOW TO FIX instructions per fix unit
+5. Groups into phases (Phase 0: micro-fixes, Phase 1-2: structural/architectural)
+6. Enforces batch size (max 8 files per unit)
+
+**Output**: `FIX_PLAN.md` — review and edit before running `/fix-review`.
+
+**Why plan first?** Subagents produce dramatically better results when given precise instructions ("Replace `data: dict` with `data: ItemCreate` on line 67") versus vague directives ("fix the types"). Planning also catches scope issues before code changes.
+
+### `/fix-review` — Execute the Plan
+
+Reads `FIX_PLAN.md` and executes each fix unit:
+
+```
+/fix-review                            # Uses FIX_PLAN.md if present
+```
+
+What it does:
+1. Reads `FIX_PLAN.md` (or builds manifest on-the-fly if missing)
+2. For each fix unit, dispatches correct subagent with HOW TO FIX
+3. Verifies each unit (Grep re-check, file count)
+4. Runs tooling gate between phases
+5. Plan completion check per phase (catches cross-unit interference)
+6. Updates `REVIEW.md` with fix statuses
+
+**Output**: `REVIEW_FIX_LOG.md` + updated `REVIEW.md`
+
+### `/validate-review` — Independent Verification
+
+A separate verification pass that doesn't trust the fixer:
+
+```
+/validate-review                       # Independent check
+```
+
+What it does:
+1. Re-scans entire codebase for each violation pattern
+2. Runs tooling in report-only mode (no --fix)
+3. Builds test coverage matrix
+4. Checks for deferred items from `FIX_PLAN.md` (excluded from %)
+
+**Output**: `REVIEW_VALIDATION.md` with completion percentage and remaining gaps.
+
+**Verdict**: ALL CLEAR / GAPS FOUND / SIGNIFICANT GAPS
+
+### `/heal-review` — Fix Remaining Gaps
+
+Targeted fixes for gaps found by validation:
+
+```
+/heal-review                           # Shows gaps, lets you pick
+/heal-review 4, 6, 7                   # Fix specific gaps
+/heal-review 1-3                       # Fix a range
+```
+
+**Strategy** — work small to large:
+1. `/heal-review <low-effort gaps>` — mechanical fixes
+2. `/heal-review <medium gaps>` — module splits, missing tests
+3. `/heal-review <high-effort gap>` — one at a time for big changes
+4. `/validate-review` after each pass
+
+---
+
+## Memory Management
+
+### The Context Priority Hierarchy
+
+| Source | Priority | Notes |
+|--------|----------|-------|
+| CLAUDE.md | High | Authoritative project instructions |
+| Rules Directory | High | Auto-loaded when paths match |
+| Skills (commands) | Medium | Loaded on-demand when triggered |
+| Conversation history | Variable | Decays over long sessions |
+| File contents (Read) | Standard | Normal context |
+
+### CLAUDE.md Best Practices
+
+Keep it short. If CLAUDE.md is too long, important rules get lost in noise.
+- Ruthlessly prune instructions Claude already follows correctly
+- Move detailed patterns to rules files with path matching
+- Convert enforcement to hooks where possible
+
+### Rules Auto-Loading
+
+Rules load automatically when Claude reads files matching the path pattern:
+
+```markdown
 ---
 paths: src/api/**/*.ts
 ---
- 
+
 # These instructions get high priority ONLY during API work
 ```
 
-
-#### Trust but verify
-
-The trust-then-verify gap. Claude produces a plausible-looking implementation that doesn’t handle edge cases.
-> Fix: Always provide verification (tests, scripts, screenshots). If you can’t verify it, don’t ship it.
-
 ---
 
-### End-to-End Development Workflow
-
-The full release cycle from issues to deployment, with quality enforcement at every stage:
+## Multi-Layer Quality Enforcement
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  PLAN                                                               │
-│  /plan-release (from GH Issues / Jira tickets)                      │
-│  → reads ARCHITECTURE.md, rules, agents                             │
-│  → creates implementation plan with dependency order                 │
-│  → dispatches agents per feature with full constraints               │
-├─────────────────────────────────────────────────────────────────────┤
-│  BUILD (per feature branch)                                         │
-│  Agent implements → rules auto-load at write-time                   │
-│  Agent runs tooling after implementation (pyright, ruff, tests)     │
-│  Pre-commit hooks catch mechanical violations on commit             │
-│  /check before merge → architectural gate on git diff               │
-│  Merge to main                                                      │
-├─────────────────────────────────────────────────────────────────────┤
-│  RELEASE GATE (all features merged)                                 │
-│  /review-architecture → full codebase audit                         │
-│  /plan-fix → detailed fix plan with HOW TO FIX per unit             │
-│  (user reviews & edits FIX_PLAN.md)                                 │
-│  /fix-review → executes plan, dispatches subagents                  │
-│  /validate-review → independent verification                        │
-│  /heal-review (if needed) → self-healing loop                       │
-│  /validate-review (final) → ALL CLEAR                               │
-├─────────────────────────────────────────────────────────────────────┤
-│  DEPLOY                                                             │
-│  Release to staging for testing                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### The Commands
-
-**Development commands** (run repeatedly during development):
-
-| Command | When | Speed | Purpose |
-|---------|------|-------|---------|
-| `/plan-release` | Start of release cycle | Minutes | Plan features from issues, dispatch agents with context |
-| `/check` | Per feature branch, before merge | Minutes | Fast, read-only, diff-scoped architectural gate |
-
-**Release gate commands** (run once per release milestone, in order):
-
-| # | Command | Speed | Purpose |
-|---|---------|-------|---------|
-| 1 | `/review-architecture` | 10+ min | Full 5-agent codebase audit |
-| 2 | `/plan-fix` | 5-10 min | Detailed fix plan with file lists + HOW TO FIX per unit |
-| 3 | `/fix-review` | 10+ min | Executes FIX_PLAN.md, dispatches subagents |
-| 4 | `/validate-review` | 10+ min | Independent verification (Grep + tooling + test matrix) |
-| 5 | `/heal-review` | 10+ min | Self-healing loop with max 2 rework cycles |
-
-#### Command Usage & Parameters
-
-**`/plan-release`** — accepts issue references as arguments:
-```
-/plan-release GH#301, GH#404, GH#412        # GitHub issues by number
-/plan-release #301 #404                       # Short form
-/plan-release JIRA-205, GH#301               # Mixed sources
-/plan-release "Add invoice export feature"    # Free-text description
-```
-Fetches issue details via `gh issue view`, reads `ARCHITECTURE.md` for project context, creates a phased implementation plan with dependency ordering, and dispatches the right subagent per feature with full constraints embedded in the prompt.
-
-**`/plan-fix`** — produces a detailed fix plan before execution:
-```
-/plan-fix                                # Reads REVIEW.md, writes FIX_PLAN.md
-```
-Reads every finding from `REVIEW.md`, expands example files to complete lists via Grep/Glob, inspects 2-3 affected files per finding to understand the violation in context, finds reference examples of the correct pattern, and writes `FIX_PLAN.md` with concrete HOW TO FIX instructions for each fix unit. The user reviews and edits the plan before running `/fix-review`.
-
-**Why use `/plan-fix`?** Subagents produce dramatically better results when given precise, pre-inspected instructions ("Replace `data: dict` with `data: ItemCreate` on line 67") versus vague directives ("fix the type annotations"). The planning step also catches issues early — wrong file lists, missing dependencies between fixes, unrealistic scope — before any code is changed.
-
-**`/heal-review`** — accepts gap selectors to target specific gaps:
-```
-/heal-review Gap 2, Gap 5, Gap 7    # Fix specific gaps (quick wins first)
-/heal-review 1                       # Fix a single large gap in a dedicated session
-/heal-review 1-3                     # Fix a range of gaps
-/heal-review                         # No args → shows gap table with effort estimates, lets you pick
-```
-When called without arguments, displays all gaps with effort estimates (Low/Medium/High) based on file count and change complexity. Recommends starting with Low effort gaps for quick wins. Warns before starting High effort gaps that affect 15+ files.
-
-**Recommended `/heal-review` strategy** — work from small to large:
-1. First pass: `/heal-review <low-effort gaps>` — mechanical fixes (enum replacements, missing return types, etc.)
-2. Second pass: `/heal-review <medium gaps>` — module splits, missing test files
-3. Third pass: `/heal-review <high-effort gap>` — one at a time for architectural changes (service→repo extraction, TanStack Query migration, etc.)
-4. After each pass: `/validate-review` to update completion percentage
-
----
-
-### Code Quality Enforcement — Multi-Layer Defense
-
-Quality enforcement happens at 4 layers, from write-time to release-time. Each layer catches what the previous one missed.
-
-#### The Layers
-
-```
-Layer 1 — Write-time:    Rules auto-load when agent reads files → guides code generation
-Layer 2 — Commit-time:   Tooling (ruff, pyright, eslint, tsc) blocks mechanical violations
-Layer 3 — Merge-time:    /check scans only changed files for architectural violations
-Layer 4 — Release-time:  Full /review-architecture pipeline audits entire codebase
+Layer 1 — Write-time:    Rules auto-load → guides code generation
+Layer 2 — Commit-time:   Tooling blocks mechanical violations
+Layer 3 — Merge-time:    /check scans changed files
+Layer 4 — Release-time:  Full /review-architecture pipeline
 ```
 
 | Layer | What It Catches | Speed | Scope |
 |-------|----------------|-------|-------|
-| Rules (auto-load) | Guides the agent to follow patterns | Instant | Current file |
-| Tooling (commit) | Type errors, lint, imports, security | Seconds | Changed files |
-| `/check` (merge) | Architectural violations, missing tests, SoC breaches | Minutes | Git diff |
-| `/review-architecture` (release) | Everything above + full codebase cross-reference | 10+ min | Entire project |
+| Rules | Pattern violations during generation | Instant | Current file |
+| Tooling | Type errors, lint, security | Seconds | Changed files |
+| `/check` | Architectural violations | Minutes | Git diff |
+| `/review-architecture` | Everything + cross-reference | 10+ min | Entire project |
 
 ---
 
-### Pre-Merge Gate: `/check`
+## Key Design Principles
 
-A fast, focused architecture check on only the files changed in the current branch. Run before every merge.
+### Plan Before Do
 
-- **Completely read-only and non-destructive** — never modifies files, never runs git checkout/reset/push
-- Uses only read-only git commands: `git diff --name-only`, `git merge-base`, `git rev-parse`
-- Scopes to `git diff` against base branch — only changed files
-- Runs tooling in check mode (pyright/ruff check/eslint/tsc/dart analyze) + tests
-- Reads changed files to analyze them against architectural rules
-- Checks for "missing companions": new endpoint without test, new stateful entity without FSM, new module without ARCHITECTURE.md update
-- Reports inline (no file output) with a verdict: READY TO MERGE / REVIEW BEFORE MERGING / DO NOT MERGE
+Both workflows separate planning from execution:
+- **Development**: `/plan-release` plans → `/implement-phase` executes
+- **Release gate**: `/plan-fix` plans → `/fix-review` executes
 
-**When to use**: After finishing a feature branch, before creating a PR or merging. Quick enough to run after every batch of changes. Safe to run at any time — it only reads, never writes.
+This separation improves quality because:
+1. Planning gets dedicated attention
+2. User reviews before code changes
+3. Subagents receive precise instructions
+4. Plans serve as audit documentation
+
+### Orchestrator Delegation Rule
+
+Commands like `/fix-review`, `/heal-review`, `/plan-release`, `/implement-phase` are **orchestrators** that MUST NOT edit source code directly. All code changes are dispatched to specialized subagents via the `Task` tool.
+
+Orchestrator actions:
+- Read files, Grep/Glob for patterns
+- Run tooling via Bash
+- Dispatch subagents via Task
+- Write review artifacts (REVIEW.md, FIX_PLAN.md, etc.)
+
+### Trust But Verify
+
+- Validation is never done by the same agent that implemented
+- Tooling is source of truth (tools override Grep heuristics)
+- Plan completion checks catch subagent misses
+- Max 2 rework cycles to prevent infinite loops
+
+### Human Checkpoints
+
+- `/plan-fix` → user reviews `FIX_PLAN.md` before `/fix-review`
+- `/plan-release` → user reviews `IMPLEMENTATION_PLAN.md` before `/implement-phase`
+- Phase checkpoints pause for confirmation
+- Gaps flagged for manual intervention after max retries
 
 ---
 
-### Architecture Review & Fix Pipeline
+## When to Use What
 
-A 4-command pipeline to audit a codebase against your rules, fix all findings with zero gaps, and verify completeness. Run at release milestones or when onboarding an existing project.
-
-#### The Commands
-
-| Command | Output | Purpose |
-|---------|--------|---------|
-| `/review-architecture` | `REVIEW.md` | Full audit against all rules (5 parallel agents) |
-| `/plan-fix` | `FIX_PLAN.md` | Detailed fix plan — file lists, HOW TO FIX, agent assignments, phases |
-| `/fix-review` | `REVIEW_FIX_LOG.md` + updated `REVIEW.md` | Execute the fix plan, dispatch subagents, verify results |
-| `/validate-review` | `REVIEW_VALIDATION.md` | Independent verification (Grep + tooling + test coverage matrix) |
-| `/heal-review` | Updated `REVIEW.md` + `REVIEW_VALIDATION.md` | Self-healing loop for remaining gaps |
-
-#### The Flow
-
-```
-/review-architecture → /plan-fix → (user reviews FIX_PLAN.md) → /fix-review → /validate-review
-                                                                                     │
-                                                                                ALL CLEAR? → done
-                                                                                     │ no
-                                                                                /heal-review
-                                                                                     │
-                                                                                /validate-review
-                                                                                     │
-                                                                                ALL CLEAR? → done
-                                                                                     │ no
-                                                                                manual intervention
-```
-
-#### Review Cycle Lifecycle
-
-Reviews are not one-shot — they repeat at each release milestone. The pipeline handles this automatically:
-
-```
-Release 1.0 features done
-    │
-    ├─ /review-architecture     → REVIEW.md (fresh)
-    ├─ /plan-fix                → FIX_PLAN.md (user reviews & edits)
-    ├─ /fix-review              → executes plan, REVIEW_FIX_LOG.md
-    ├─ /validate-review         → REVIEW_VALIDATION.md → ALL CLEAR ✅
-    │
-    │  ... features developed, /check used on each branch ...
-    │
-Release 1.1 features done
-    │
-    ├─ /review-architecture     → archives old files to reviews/2025-06-15_*
-    │                           → writes fresh REVIEW.md
-    ├─ /plan-fix                → fresh plan
-    ├─ /fix-review              → fresh cycle
-    └─ ...
-```
-
-**Auto-archival**: When `/review-architecture` runs and finds existing review artifacts (`REVIEW.md`, `REVIEW_VALIDATION.md`, `REVIEW_FIX_LOG.md`), it moves them to a `reviews/` directory with date prefix before starting the new cycle. Clean slate, history preserved.
-
-**Staleness detection**: `/fix-review` and `/validate-review` warn if the REVIEW.md is older than 7 days — the codebase may have changed since the review.
-
-#### Why This Pipeline Exists
-
-The naive approach — "review, then fix" — has a reliability gap: review findings list *example* files (`router_users.py`), but the agent only fixes those examples, not the 12 other routers with the same issue. Checkboxes get marked done without full verification.
-
-This pipeline closes the gap with four layers of defense:
-
-1. **`/plan-fix` — Thinking before doing**: Reads every finding, inspects the actual code, expands to complete file lists, and writes concrete HOW TO FIX instructions in `FIX_PLAN.md`. The user reviews and edits the plan before any code is touched. This separation of planning from execution is the single biggest improvement to fix quality — subagents work dramatically better when given precise, pre-approved instructions.
-
-2. **`/fix-review` — Mechanical execution**: Reads `FIX_PLAN.md` and executes each fix unit by dispatching the right subagent with the pre-written instructions. Verifies post-fix with Grep re-check, tooling gate, and file count reconciliation. Because the plan is already detailed, the orchestrator's job is simpler and more reliable.
-
-3. **`/validate-review` — Independent verification**: A separate pass that re-scans the entire codebase for each violation pattern, runs tooling in report-only mode, and builds a test coverage matrix. Catches anything `/fix-review` missed.
-
-4. **`/heal-review` — Self-healing loop**: For any remaining gaps, creates paired tasks (implement + validate) with a different agent validating than the one that fixed. Max 2 rework cycles per gap to prevent infinite loops.
-
-#### When to Use
-
-| Scenario | What to Run |
-|----------|-------------|
-| **After finishing a feature branch** | `/check` |
-| **New project bootstrap** | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` |
-| **Existing project onboarding** | Same as bootstrap |
-| **Before a release** | `/review-architecture` → `/plan-fix` → full pipeline |
-| **Quick drift check** | `/review-architecture` + `/validate-review` (skip fix) |
-
-#### Key Design Decisions
-
-- **Plan before fix** — `/plan-fix` separates "thinking" from "doing". The planner reads code, expands file lists, writes concrete instructions. The fixer (`/fix-review`) just executes the plan. This separation dramatically improves fix quality because: (a) the plan gets dedicated attention, (b) the user can review and edit before code changes, (c) subagents receive precise instructions, (d) the plan serves as audit documentation.
-- **Orchestrator delegation rule** — `/fix-review`, `/heal-review`, and `/plan-release` are orchestrators that MUST NOT edit source code directly. All code changes are dispatched to specialized subagents via the `Task` tool. The orchestrator's role is limited to: reading files, scanning with Grep/Glob, running tooling via Bash, dispatching subagents, and writing review artifacts. This ensures the right agent (with the right rules loaded) does the implementation.
-- **Validation is never done by the same agent that implemented the fix** — no self-grading.
-- **Human checkpoints** between phases — `/fix-review` pauses between migration phases, `/heal-review` asks before starting.
-- **Max 2 rework cycles** in `/heal-review` to prevent infinite loops — unresolved items are flagged for manual intervention.
-- **All findings stay in REVIEW.md** — statuses are updated inline (`✅ Fixed`, `⚠️ Partial`) but original findings are never deleted, preserving audit history.
-- **Subagent mapping is explicit** — each command references the agent definition files in `~/.claude/agents/` by name, with fallback to `general-purpose`.
-- **Tooling is source of truth** — both `/fix-review` (tooling gate between phases) and `/validate-review` (tooling verification step) run actual tools (pyright, ruff, eslint, dart analyze, flutter test, pytest). Grep heuristics are a supplement, not a substitute. Tools override Grep.
-- **Every rule needs a Grep pattern** — abstract rules without matching concrete Grep tasks in the audit agents get missed. When adding a new rule, always add the corresponding detection pattern to the review agents.
+| Scenario | Commands |
+|----------|----------|
+| Starting a new feature | `/plan-release` → `/implement-phase N` → `/check` |
+| Before merging a feature branch | `/check` |
+| New project bootstrap | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` |
+| Onboarding existing project | Same as bootstrap |
+| Before a release | Full release gate workflow |
+| Quick drift check | `/review-architecture` only |

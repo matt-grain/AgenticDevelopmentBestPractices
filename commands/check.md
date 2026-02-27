@@ -138,7 +138,37 @@ Group checks by what's relevant to each file's location:
 - Is `Any` / `any` used without justification?
 - Are type annotations complete?
 
-## Step 3 — Cross-File Consistency Check
+## Step 3 — Plan Gap Analysis (if implementation in progress)
+
+If `IMPLEMENTATION_PLAN.md` exists at the project root, check for drift between the plan and reality:
+
+1. **Read `IMPLEMENTATION_PLAN.md`** — parse the phases and their expected files/tasks
+2. **Read `IMPLEMENTATION_STATUS.md`** (if it exists) — parse current completion status
+3. **Identify the current phase** — look at which phase is marked in-progress or find the first incomplete phase
+4. **For the current phase, check**:
+   - Are all expected files from the plan present in the changed files or already committed?
+   - Are there changed files NOT mentioned in the plan? (scope creep)
+   - Are there plan items marked complete that don't match the actual file state?
+
+Report as a dedicated section:
+
+```
+### Plan Alignment (Phase {N})
+| Status | Plan Item | Actual State |
+|--------|-----------|--------------|
+| ✅ | Create `features/orders/domain/entities/order.dart` | File exists, 45 lines |
+| ⚠️ | Create `features/orders/data/models/order_dto.dart` | File exists but missing toEntity() |
+| ❌ | Create `features/orders/presentation/pages/order_page.dart` | Not found |
+| ➕ | (not in plan) | `features/orders/utils/helpers.dart` was added — scope creep? |
+```
+
+If there are ❌ missing items or ➕ scope creep, flag in the verdict:
+- Missing plan items → "Phase {N} incomplete: {list}"
+- Scope creep → "Files added outside plan: {list} — intentional?"
+
+**Skip this step** if no `IMPLEMENTATION_PLAN.md` exists — this is optional context for in-progress implementations.
+
+## Step 4 — Cross-File Consistency Check
 
 Some violations only appear when looking at relationships between changed files:
 
@@ -149,7 +179,7 @@ Some violations only appear when looking at relationships between changed files:
 5. **New feature without schema separation**: If a new domain was added, does it have separate Create/Update/Out schemas?
 6. **Missing ARCHITECTURE.md update**: If a new module/directory was added, was ARCHITECTURE.md updated?
 
-## Step 4 — Report
+## Step 5 — Report
 
 Output a concise report directly to the user (do NOT write a file — this is a quick check, not an audit artifact):
 
@@ -175,10 +205,22 @@ Output a concise report directly to the user (do NOT write a file — this is a 
 | services/payment_service.py (new method: charge) | No error-path test |
 | models/invoice.py (has status field) | No FSM definition |
 
+### Plan Alignment (if IMPLEMENTATION_PLAN.md exists)
+**Phase {N}: {title}**
+| Status | Plan Item | Actual State |
+|--------|-----------|--------------|
+| ✅ | ... | ... |
+| ⚠️ | ... | ... |
+| ❌ | ... | Not found |
+| ➕ | (not in plan) | Scope creep: {file} |
+
 ### Verdict
 ✅ READY TO MERGE — no violations found.
 ⚠️ REVIEW BEFORE MERGING — {N} warnings found. Consider fixing before merge.
 ❌ DO NOT MERGE — {N} critical violations found. Fix these first.
+
+{If plan gaps exist:}
+⚠️ PLAN DRIFT — Phase {N} has {X} missing items and {Y} files outside plan scope.
 ```
 
 If the verdict is ❌, briefly list the top 3 most critical issues and what to fix.
