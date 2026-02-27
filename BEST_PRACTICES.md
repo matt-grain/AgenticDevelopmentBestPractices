@@ -17,6 +17,7 @@ This document describes a complete development workflow using Claude Code comman
 
 | Command | Purpose | Output |
 |---------|---------|--------|
+| `/plan-status` | Dashboard: where are we? what's next? | Inline report |
 | `/plan-release` | Design features, split into phases | `IMPLEMENTATION_PLAN.md` |
 | `/implement-phase N` | Execute a specific phase | Code + `IMPLEMENTATION_STATUS.md` |
 | `/check` | Pre-merge architectural gate (read-only) | Inline verdict |
