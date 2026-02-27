@@ -189,9 +189,11 @@ Add a status header to the phase:
 **Completed:** {date}
 ```
 
-### 5b — Write/Update `IMPLEMENTATION_STATUS.md`
+### 5b — Write/Update `IMPLEMENTATION_STATUS.md` (MANDATORY)
 
-Create or append to `IMPLEMENTATION_STATUS.md` at the project root:
+**You MUST write this file.** This is not optional. Use the Write tool to create or update `IMPLEMENTATION_STATUS.md` at the project root.
+
+If the file exists, read it first, then update the Progress Summary table and append the new phase section. If it doesn't exist, create it with the full structure below:
 
 ```markdown
 # Implementation Status — {project_name}
@@ -271,6 +273,8 @@ Create or append to `IMPLEMENTATION_STATUS.md` at the project root:
 ```
 
 ## Step 6 — Report to User
+
+**Before reporting, verify you completed Step 5b** — the `IMPLEMENTATION_STATUS.md` file MUST exist and be updated before you show this summary to the user.
 
 Summarize the phase:
 
