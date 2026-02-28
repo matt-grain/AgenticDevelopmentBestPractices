@@ -148,3 +148,4 @@ These limits are strictly enforced. **If you find yourself approaching them, STO
 - Every public service method: at least one happy-path and one error-path test.
 - Mirror `src/` structure in `tests/`. Use `conftest.py` for shared fixtures. Use factories.
 - Test boundary conditions, unauthorized access, invalid state transitions, concurrent modifications.
+- **Test files: max 300 lines.** Split by concern (e.g., `test_order_service_happy.py`, `test_order_service_errors.py`). Shared fixtures go in `conftest.py`, not duplicated.

@@ -96,13 +96,15 @@ Group checks by what's relevant to each file's location:
 - Are schemas separated by purpose (Create/Update/Out)?
 - Do custom validators exist and are they tested? (check if corresponding test file exists)
 
-### For files in `components/` or `features/`:
+### For files in `components/` or `features/` (React/Next.js/Vite):
 - Does the component exceed 150 lines?
 - Does it have named props type (`<Name>Props`)?
 - Does it have `useEffect` without a WHY comment?
 - Does it have 3+ `useState` calls? (suggest custom hook)
 - Does it use `getByTestId` heavily in co-located tests? (suggest better queries)
 - Does a feature import from another feature?
+- Does it use `Record<string, unknown>`, `Record<string, any>`, `{ [key: string]: any }`, or plain untyped objects for form data, wizard step results, or callback payloads? (must use Zod schema or typed interface)
+- Does it compare status/state values using raw strings (e.g., `status === 'pending'`, `case 'active':`)? (must use const objects or string union types)
 
 ### For files in `features/*/` (Flutter — all layers):
 - Does the file import from another feature? (e.g., `import 'package:app/features/items/...'` in a transfers feature file — cross-feature import violation)
@@ -117,6 +119,8 @@ Group checks by what's relevant to each file's location:
 - Does it use `StateNotifierProvider`? (legacy — use `NotifierProvider` or `AsyncNotifierProvider`)
 - Does it have `ref.read` in `build()` method? (should be `ref.watch`)
 - Does a detail page mutate a list provider? (e.g., `ref.read(ordersListProvider.notifier)` in a detail page — cross-mutation violation)
+- Does it use `Map<String, Object?>` or `Map<String, dynamic>` for form data, wizard results, or summary fields? (must use typed data class — `@freezed` or plain class)
+- Does it compare status/state values using raw strings (e.g., `== 'received'`, `case 'partially_received':`)? (must use enum-backed comparisons — parse to enum at data layer boundary)
 
 ### For files in `features/*/domain/` (Flutter):
 - Does it import Flutter packages (`package:flutter/...`)? (domain must be pure Dart — move IconData/Color to presentation extension)
@@ -143,6 +147,7 @@ Group checks by what's relevant to each file's location:
 - Do test names follow the spec pattern? (`test_<action>_<scenario>_<expected>` or `it("should ... when ...")`)
 - Is AAA structure visible?
 - Are there hardcoded dicts/values instead of factories?
+- Does the test file exceed 300 lines? (split by concern into multiple test files)
 - Does the test file mirror the source structure?
 
 ### For ALL changed files:

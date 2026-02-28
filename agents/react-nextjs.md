@@ -98,6 +98,28 @@ src/
 - Boolean: `is`, `has`, `can`, `should` prefix.
 - Use utility types: `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Extract`, `Exclude`, `NonNullable`, `ReturnType`, `Parameters`.
 - Zod schemas as single source of truth for validation. Derive types with `z.infer<typeof schema>`. Validate at boundaries.
+
+**No untyped data passing — HARD RULE:**
+
+⛔ **FORBIDDEN:**
+```typescript
+// BAD — untyped form/wizard data
+const onSubmit = (data: Record<string, unknown>) => { ... }
+const summary: { [key: string]: any } = { ... }
+```
+
+✅ **Required — typed interfaces everywhere:**
+```typescript
+// GOOD — Zod schema + inferred type
+const checkoutSchema = z.object({
+  shippingAddress: z.string(),
+  paymentMethod: z.enum(['card', 'bank']),
+});
+type CheckoutData = z.infer<typeof checkoutSchema>;
+const onSubmit = (data: CheckoutData) => { ... }
+```
+
+Never pass `Record<string, unknown>`, `{ [key: string]: any }`, or plain untyped objects between components, form steps, or as callback payloads. Always use a Zod schema or typed interface.
 - Absolute imports with `@/` alias. Group: react/next → third-party → `@/lib` → `@/components` → `@/features` → relative. Use `import type` for type-only imports. Never `require()`.
 
 # State Management
@@ -125,6 +147,11 @@ src/
 - `error.tsx` at each route segment. User-friendly messages. Log to monitoring service. API services throw typed error classes.
 - `loading.tsx` for route-level Suspense. Skeleton components. Never blank pages. `Suspense` for streaming.
 - React Hook Form + Zod for forms. Inline validation errors. Disable submit during submission. Multi-step forms → wizard FSM.
+
+**Wizard / Multi-step form decomposition:**
+- Extract each step into its own component file (e.g., `ShippingStep.tsx`, `PaymentStep.tsx`).
+- The wizard orchestrator should be ~80-120 lines managing step state — never 200+.
+- Step results MUST be typed (Zod schema per step) — never `Record<string, unknown>` or plain objects between steps.
 - Pagination, filtering, sorting in URL search params. Server-side pagination for large datasets. Debounce 300ms.
 - Auth in `lib/auth.ts`. Protect routes with `middleware.ts`. Server-side session validation. Client `useAuth()` hook.
 - Single shared API client in `lib/api-client.ts`. Centralized error handling, auth headers.
@@ -149,6 +176,7 @@ Next.js (App Router), Tailwind CSS, shadcn/ui, React Hook Form + Zod, TanStack Q
 - Never test internal state or styling.
 - AAA pattern. MSW for API mocking at network level. Mock at the boundary.
 - Co-locate tests: `order-card.tsx` → `order-card.test.tsx`. Integration/E2E in `tests/` or `e2e/`.
+- **Test files: max 300 lines.** Split by concern into multiple test files if needed (e.g., `order-form.happy.test.tsx`, `order-form.error.test.tsx`).
 
 | Layer | What to test | Tool |
 |---|---|---|

@@ -202,6 +202,26 @@ class Orders extends _$Orders {
 - ANY entity with a status/state field MUST define a formal FSM using freezed sealed classes.
 - ANY flow with 3+ states and constrained transitions MUST use an FSM (checkout, auth, onboarding).
 
+## No Raw String Comparisons for States — Anywhere
+
+⛔ **FORBIDDEN in ALL layers (including presentation):**
+```dart
+// BAD — raw string matching to determine state/transition
+if (status == 'partially_received') { ... }
+switch (task.status) { case 'received': ... }
+final wizardType = statusString == 'received' ? WizardType.a : WizardType.b;
+```
+
+✅ **Required — always use enum values:**
+```dart
+// GOOD — enum-backed comparison
+if (status == TaskStatus.partiallyReceived) { ... }
+switch (task.status) { case TaskStatus.received: ... }
+final wizardType = status.wizardType; // computed from enum
+```
+
+This applies to presentation widgets, action builders, wizard selectors — everywhere. If a string comes from the API, parse it to an enum at the DTO boundary (data layer), never downstream.
+
 ## Enum Parsing — No Silent Fallbacks
 
 ⛔ **FORBIDDEN:**
@@ -293,6 +313,53 @@ These limits are strictly enforced. If you find yourself exceeding them, STOP an
 - Extract form rows/list items into separate widget files immediately — don't wait until the file is too long.
 - A `CreateOrderPage` should be ~50-100 lines orchestrating extracted `_OrderFormFields`, `_LineItemList`, `_SubmitButton` widgets.
 - Complex forms (5+ fields) should extract each logical section into a widget.
+
+**When creating wizards (multi-step flows):**
+- Extract each step into its own widget file (e.g., `_QuantityStep`, `_ConfirmationStep`).
+- A wizard page should be ~80-120 lines orchestrating steps — never 180+.
+- If a wizard has a summary/review step, the summary data MUST be a typed class (see Form Data Typing below).
+
+**Test files: max 300 lines.** Split by concern using multiple test files per source file if needed (e.g., `foo_provider_happy_test.dart`, `foo_provider_error_test.dart`). Group with a shared `test/helpers/` setup file.
+
+# Form & Wizard Data Typing — HARD RULE
+
+⛔ **FORBIDDEN — untyped form data:**
+```dart
+// BAD — raw Map for form results
+final data = <String, Object?>{
+  'quantity_received': quantity,
+  'location': location,
+};
+onSubmit(data);
+
+// BAD — raw Map for wizard summary
+final Map<String, Object?>? summary;
+```
+
+✅ **Required — typed data classes:**
+```dart
+// GOOD — typed form result
+@freezed
+class CheckoutFormData with _$CheckoutFormData {
+  const factory CheckoutFormData({
+    required String shippingAddress,
+    required String paymentMethod,
+    String? couponCode,
+  }) = _CheckoutFormData;
+}
+
+// GOOD — typed wizard summary
+@freezed
+class OrderSummary with _$OrderSummary {
+  const factory OrderSummary({
+    required String orderNumber,
+    required double totalAmount,
+    required DateTime placedAt,
+  }) = _OrderSummary;
+}
+```
+
+**Rule:** Never pass `Map<String, Object?>` between widgets or as form submission data. Always define a typed data class (preferably `@freezed`) in the feature's `domain/entities/` or `presentation/models/` directory. This prevents runtime key typos, enables compile-time checking, and makes refactoring safe.
 
 # Navigation
 

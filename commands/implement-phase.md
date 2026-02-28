@@ -88,6 +88,11 @@ The subagent prompt MUST include:
 - Files to create/modify
 - Constraints for the detected project type (same as `/plan-release`)
 - Instructions to run tooling and tests after implementing
+- **Explicit typing reminders** (include verbatim in prompt):
+  - "Never use `Map<String, Object?>` or `Map<String, dynamic>` for form data, wizard results, or summary fields — always define a typed data class."
+  - "Never compare status/state values using raw strings — always use enum-backed comparisons."
+  - "Run the project linter (`ruff check`/`dart analyze`/`eslint`) BEFORE returning your result — fix any violations inline."
+  - "Test files must stay under 300 lines — split by concern if needed."
 
 ### 2c — Verify Task Output
 

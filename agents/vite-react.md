@@ -100,6 +100,28 @@ All React component rules apply (same as Next.js conventions):
 - Const objects or string unions instead of `enum`.
 - `PascalCase` for components/types, `camelCase` for functions/variables, `UPPER_SNAKE_CASE` for constants, `kebab-case` for files.
 - Zod schemas as single source of truth. Derive types with `z.infer<typeof schema>`.
+
+**No untyped data passing — HARD RULE:**
+
+⛔ **FORBIDDEN:**
+```typescript
+// BAD — untyped form/wizard/callback data
+const onSubmit = (data: Record<string, unknown>) => { ... }
+const summary: { [key: string]: any } = { ... }
+```
+
+✅ **Required — typed interfaces everywhere:**
+```typescript
+// GOOD — Zod schema + inferred type
+const orderSchema = z.object({
+  productId: z.string(),
+  quantity: z.number().positive(),
+});
+type OrderData = z.infer<typeof orderSchema>;
+const onSubmit = (data: OrderData) => { ... }
+```
+
+Never pass `Record<string, unknown>`, `{ [key: string]: any }`, or plain untyped objects between components, form steps, or as callback payloads. Always use a Zod schema or typed interface.
 - Absolute imports with `@/` alias. Group imports consistently. `import type` for type-only. Never `require()`.
 
 # State Management
@@ -132,6 +154,9 @@ All React component rules apply (same as Next.js conventions):
 
 - React Hook Form + Zod. Generate forms from schemas when possible.
 - Always show form-level AND field-level errors.
+- Multi-step forms → wizard FSM. Extract each step into its own component file.
+- Wizard orchestrator should be ~80-120 lines — never 200+.
+- Step results MUST be typed (Zod schema per step) — never `Record<string, unknown>` between steps.
 
 ## Optimistic UI
 
@@ -205,6 +230,7 @@ export const env = envSchema.parse(import.meta.env);
 - Test behavior, not implementation. Query by role, label, text.
 - Test names: `it("should <expected behavior> when <scenario>")`.
 - AAA pattern. MSW for API mocking. Co-locate tests next to source files.
+- **Test files: max 300 lines.** Split by concern into multiple test files if needed (e.g., `user-form.happy.test.tsx`, `user-form.error.test.tsx`).
 
 ## Internal Tool Testing Priorities
 
