@@ -88,11 +88,45 @@ The subagent prompt MUST include:
 - Files to create/modify
 - Constraints for the detected project type (same as `/plan-release`)
 - Instructions to run tooling and tests after implementing
-- **Explicit typing reminders** (include verbatim in prompt):
-  - "Never use `Map<String, Object?>` or `Map<String, dynamic>` for form data, wizard results, or summary fields — always define a typed data class."
-  - "Never compare status/state values using raw strings — always use enum-backed comparisons."
-  - "Run the project linter (`ruff check`/`dart analyze`/`eslint`) BEFORE returning your result — fix any violations inline."
-  - "Test files must stay under 300 lines — split by concern if needed."
+- **Self-verification checklist** — include this verbatim at the END of every subagent prompt:
+
+```
+BEFORE returning your result, verify EVERY file you created/modified against this checklist. Fix any violations inline — do NOT leave them for a later pass.
+
+FLUTTER:
+- [ ] Every domain entity uses @freezed — no hand-rolled copyWith or plain classes
+- [ ] No Map<String, Object?> or Map<String, dynamic> anywhere in presentation — use typed data classes
+- [ ] No raw string comparisons for state/status — use enum values everywhere
+- [ ] No ?? defaultValue on required fields — validate and fail early instead
+- [ ] No ref.read() inside build() — use ref.watch (ref.read only in callbacks)
+- [ ] No business logic in presentation (no domain object construction in providers/widgets)
+- [ ] No hardcoded Color(0xFF...) — use Theme tokens from core/theme/
+- [ ] No scattered string constants — consolidate into enum or core/constants/
+- [ ] No // TODO without issue reference
+- [ ] Run dart analyze --fatal-infos and fix before returning
+
+PYTHON/FASTAPI:
+- [ ] Services depend on repositories only — never on other services (use workflows)
+- [ ] No Session parameter in services — not even private methods
+- [ ] All status/type fields use StrEnum — never raw str
+- [ ] No dict[str, Any] returns — use Pydantic schemas
+- [ ] No eager loading of all deps when only a subset is needed
+- [ ] All list endpoints are paginated — no hardcoded limits
+- [ ] No // TODO without issue reference
+- [ ] Run ruff check and ruff format before returning
+
+REACT/NEXT.JS/VITE:
+- [ ] No Record<string, unknown> or { [key: string]: any } — use Zod schemas
+- [ ] No raw string status comparisons — use const objects or string unions
+- [ ] Multi-step forms extract each step into its own component
+- [ ] No // TODO without issue reference
+- [ ] Run tsc --noEmit and eslint before returning
+
+ALL STACKS:
+- [ ] Files under 200 lines, test files under 300 lines
+- [ ] Functions under 30 lines
+- [ ] No // TODO, // FIXME, // HACK without tracker reference
+```
 
 ### 2c — Verify Task Output
 

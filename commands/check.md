@@ -86,6 +86,9 @@ Group checks by what's relevant to each file's location:
 - Does it use inline imports to access repository singletons? (e.g., `from ..repositories.foo import foo_repo` inside a method — must use DI)
 - Does it have more than 12 public methods? (god service — split by responsibility)
 - Are there `Any` type hints without justification comments?
+- Does any method eagerly load/call multiple repositories when only one branch is used? (use strategy/dispatch pattern — don't evaluate all branches)
+- Are there hardcoded `limit=N` values without proper pagination? (should use paginated query pattern)
+- Do parameters use `str` or `str | None` for values from a fixed set? (should use `StrEnum`)
 
 ### For files in `repositories/`:
 - Does the repository contain business logic?
@@ -121,6 +124,10 @@ Group checks by what's relevant to each file's location:
 - Does a detail page mutate a list provider? (e.g., `ref.read(ordersListProvider.notifier)` in a detail page — cross-mutation violation)
 - Does it use `Map<String, Object?>` or `Map<String, dynamic>` for form data, wizard results, or summary fields? (must use typed data class — `@freezed` or plain class)
 - Does it compare status/state values using raw strings (e.g., `== 'received'`, `case 'partially_received':`)? (must use enum-backed comparisons — parse to enum at data layer boundary)
+- Does it contain domain object construction logic (e.g., `_buildCreateRequest()` in a provider/widget)? (domain construction belongs in use cases or domain layer)
+- Does it use `?? 0`, `?? ''`, or `?? defaultValue` on required domain fields? (silent fallback — validate before constructing domain objects)
+- Does it hardcode `Color(0xFF...)` literals? (must use Theme tokens or named colors from `core/theme/`)
+- Are the same string literals (wizard types, entity types) scattered across 3+ files? (consolidate into a single enum or constants file)
 
 ### For files in `features/*/domain/` (Flutter):
 - Does it import Flutter packages (`package:flutter/...`)? (domain must be pure Dart — move IconData/Color to presentation extension)
@@ -155,7 +162,7 @@ Group checks by what's relevant to each file's location:
 - Are there functions over 30 lines?
 - Are there functions with 6+ parameters?
 - Are there `# type: ignore` / `@ts-ignore` / `eslint-disable` without justification?
-- Are there `TODO` / `FIXME` / `HACK` comments?
+- Are there `TODO` / `FIXME` / `HACK` comments without a tracker reference? (must be `// TODO(#1234): reason`)
 - Are there `print()` / `debugPrint()` calls in production code?
 - Are there f-string SQL patterns?
 - Are there hardcoded secrets?

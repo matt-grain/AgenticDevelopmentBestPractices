@@ -27,6 +27,12 @@ When making changes that touch 3+ files or introduce a new pattern:
 - After refactoring, verify that test names and architecture docs still reflect reality.
 - If a refactor changes the project structure, update `ARCHITECTURE.md` in the same commit.
 
+## TODO / FIXME / HACK Comments
+- Every `// TODO`, `// FIXME`, `// HACK` MUST include a tracker reference: `// TODO(#1234): reason`.
+- TODOs without a reference are forbidden — they become invisible tech debt.
+- If no issue tracker exists yet, create the issue first, then reference it.
+- Agents generating code must NOT leave `// TODO` placeholders — either implement the feature or flag it as a gap in the implementation status.
+
 ## Code Review Signals (for Humans Reviewing Agent Output)
 Flag for extra scrutiny:
 - Any new catch-all utility file (`utils.ts`, `helpers.py`, etc.).
@@ -35,3 +41,4 @@ Flag for extra scrutiny:
 - Any `any`, `// @ts-ignore`, `# type: ignore` without justification.
 - Any new dependency addition.
 - Any deviation from the layered architecture.
+- Any `// TODO` or `// FIXME` without a tracker reference.

@@ -103,7 +103,7 @@ final orderRepositoryProvider = Provider<OrderRepository>((ref) {
 - ALL functions must have full type annotations (parameters + return types). No implicit `dynamic`.
 - Never use `dynamic` without an explanatory comment — prefer `Object?` and type narrowing.
 - Sound null safety. Never use `!` (bang operator) without justifying why null is impossible at that point.
-- Use `@freezed` for immutable domain models. Never mutable classes for entities.
+- Use `@freezed` for immutable domain models. Never mutable classes for entities. Never hand-roll `copyWith` — `@freezed` generates it.
 - Enhanced enums (Dart 3.0+) with properties and methods for associated behavior.
 - Pattern matching and switch expressions — never `if/else` chains on type or enum.
 - `PascalCase` for classes/enums/typedefs/extensions. `camelCase` for methods/variables/parameters. `snake_case` for files/directories. `SCREAMING_SNAKE_CASE` for constants.
@@ -222,6 +222,8 @@ final wizardType = status.wizardType; // computed from enum
 
 This applies to presentation widgets, action builders, wizard selectors — everywhere. If a string comes from the API, parse it to an enum at the DTO boundary (data layer), never downstream.
 
+**Consolidate related constants**: When multiple files reference the same set of string keys (e.g., wizard types, entity types, route keys), define them as a single enum or `class` of `static const` values in `core/constants/` or `domain/enums/`. Never scatter the same string literal across 3+ files.
+
 ## Enum Parsing — No Silent Fallbacks
 
 ⛔ **FORBIDDEN:**
@@ -253,6 +255,35 @@ static ScanEntityType? tryFromString(String value) {
   );
 }
 ```
+
+## No Silent Fallbacks on Required Fields
+
+The "fail fast" principle extends beyond enum parsing. Never use `?? defaultValue` to silently paper over a field that should be non-null:
+
+⛔ **FORBIDDEN:**
+```dart
+// BAD — submits invalid data if form is incomplete
+final request = CreateOrderRequest(
+  quantity: formData.quantity ?? 0,   // 0 is not a valid quantity!
+  locationId: formData.locationId ?? '',  // empty string hides missing data
+);
+```
+
+✅ **Required — validate before constructing:**
+```dart
+// GOOD — validate and fail early
+final quantity = formData.quantity;
+final locationId = formData.locationId;
+if (quantity == null || locationId == null) {
+  throw StateError('Form incomplete: quantity and location are required');
+}
+final request = CreateOrderRequest(
+  quantity: quantity,
+  locationId: locationId,
+);
+```
+
+If a field is required by the domain, the form must validate it before submission. If the API guarantees it non-null, the DTO must parse it as non-nullable. Silent `?? 0` or `?? ''` fallbacks hide bugs.
 
 ## Domain Enums — Pure Dart Only
 
@@ -398,6 +429,7 @@ class OrderSummary with _$OrderSummary {
 - All interactive elements must be accessible — use `Semantics` widget where needed.
 - All images must have `semanticLabel`.
 - Sufficient color contrast (WCAG AA minimum).
+- **Never hardcode color literals** (`Color(0xFF2E7D32)`) in widgets — always use `Theme.of(context).colorScheme`, `Theme.of(context).extension<T>()`, or named tokens from `core/theme/`. Hardcoded hex colors bypass theming, dark mode, and design consistency.
 - Support dynamic type sizes (`MediaQuery.textScaleFactor`).
 
 # Tooling

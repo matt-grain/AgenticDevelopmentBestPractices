@@ -75,6 +75,31 @@ UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 - **ISP**: Small, focused `Protocol` classes over large abstract interfaces.
 - **DIP**: High-level modules depend on abstractions. Services depend on repository Protocols. Wiring happens in `dependencies.py`.
 
+## Selective Dependency Loading
+
+Never eagerly load all repositories/dependencies when only a subset is needed per operation:
+
+⛔ **FORBIDDEN:**
+```python
+# BAD — loads 7 repos, only 1 used per call
+def _load_entity(self, entity_type: str) -> Entity:
+    order = self.order_repo.get(...)
+    receipt = self.receipt_repo.get(...)
+    transfer = self.transfer_repo.get(...)
+    # ... 4 more repos
+    return {type: order, ...}[entity_type]
+```
+
+✅ **Required — dispatch to specific loader:**
+```python
+# GOOD — only the needed repo is called
+def _load_entity(self, entity_type: EntityType) -> Entity:
+    loader = self._loaders[entity_type]  # dict of callables
+    return loader()
+```
+
+If a method branches by type/status and each branch uses different dependencies, use a strategy/dispatch pattern — not eager evaluation of all branches.
+
 # KISS, DRY, YAGNI
 
 - Write the simplest code that solves the problem. Prefer flat over nested — use guard clauses.
