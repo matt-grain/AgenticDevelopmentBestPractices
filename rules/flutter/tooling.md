@@ -137,3 +137,52 @@ linter:
 - A single class SHOULD NOT exceed 150 lines.
 - Maximum function parameters: 5 — beyond that, use a params class or record.
 - Cyclomatic complexity per function: keep below 10.
+
+## Debug Logging — Production Safety
+
+**NEVER use `print()` or `debugPrint()` in production code without a debug guard.**
+
+```dart
+// ❌ BAD — logs in release builds, exposes sensitive data
+debugPrint('User token: $token');
+debugPrint('Request failed: $error');
+
+// ✅ GOOD — guarded with kDebugMode
+import 'package:flutter/foundation.dart';
+
+if (kDebugMode) {
+  debugPrint('Debug info: $data');
+}
+
+// ✅ BETTER — use a logger that respects build mode
+Logger.d('Debug info: $data');  // Logger class checks kDebugMode internally
+```
+
+### Sensitive Data in Logs
+Even in debug mode, NEVER log:
+- Tokens, passwords, API keys
+- Full user PII (email, phone)
+- Full request/response bodies with sensitive fields
+
+### Dio LogInterceptor
+Gate verbose HTTP logging behind `kDebugMode`:
+
+```dart
+if (kDebugMode) {
+  dio.interceptors.add(LogInterceptor(
+    requestBody: true,
+    responseBody: true,
+  ));
+}
+```
+
+## Dio Response Handling
+
+When accessing `response.data`, add a one-time justification comment per data source:
+
+```dart
+// Dio populates `data` for all 2xx responses; null is impossible here.
+final data = response.data!;
+```
+
+This documents the intentional use of `!` and satisfies null-safety audits.

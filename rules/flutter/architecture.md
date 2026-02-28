@@ -141,6 +141,35 @@ class OrderRepositoryImpl implements OrderRepository {
   - Shared state (if absolutely necessary)
 - Keep features independent so they can be developed and tested in isolation.
 
+### Cross-Feature Import Detection
+
+These import patterns are **FORBIDDEN**:
+```dart
+// ❌ BAD — feature importing from another feature
+import 'package:app/features/items/domain/entities/item.dart';  // In transfers feature
+import 'package:app/features/warehouses/presentation/providers/...';  // In adjustments feature
+```
+
+If you need entities/DTOs from another feature:
+1. **Move to `shared/`** — if it's a truly shared domain concept (e.g., `StockLevel`)
+2. **Move to `core/`** — if it's infrastructure (e.g., shared providers for item/location selection)
+3. **Pass IDs via navigation** — fetch the data in the destination feature
+
+### Circular Import Prevention
+
+Data layer (`data/`) MUST NEVER import from presentation layer (`presentation/`). This creates circular dependencies that break Clean Architecture.
+
+```dart
+// ❌ BAD — data importing from presentation
+// In features/auth/data/auth_service.dart:
+import '../presentation/providers/auth_provider.dart';  // FORBIDDEN
+
+// ✅ GOOD — create domain entity instead
+// In features/auth/domain/entities/auth_state.dart:
+@freezed
+class AuthState with _$AuthState { ... }
+```
+
 ## Dependency Rule
 
 Dependencies point INWARD only:

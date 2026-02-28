@@ -45,11 +45,11 @@ lib/
 
 ## Layer Rules
 
-**Domain layer**: Pure Dart ONLY. No Flutter imports, no external package imports (except freezed_annotation, json_annotation). Contains entities, enums, repository interfaces, and use cases. This is the core of the application — all other layers depend on it.
+**Domain layer**: Pure Dart ONLY — NO `package:flutter/...` imports. Allowed imports: `dart:*`, `freezed_annotation`, `json_annotation`. Contains entities, enums, repository interfaces, and use cases. This is the core of the application — all other layers depend on it. **If a domain enum needs `IconData` or `Color`, move those to a presentation extension (see Enums section).**
 
-**Data layer**: Implements domain repository interfaces. Maps DTOs to domain entities — never expose DTOs above this layer. Contains remote data sources (Dio), local data sources (Hive/drift), and repository implementations.
+**Data layer**: Implements domain repository interfaces. Maps DTOs to domain entities — never expose DTOs above this layer. Contains remote data sources (Dio), local data sources (Hive/drift), and repository implementations. **Never import from `presentation/`** — this creates circular dependencies.
 
-**Presentation layer**: UI concerns only. Pages are thin orchestrators — compose widgets, read state, dispatch events. Never import from `data/` directly — always through domain interfaces. No business logic in widgets.
+**Presentation layer**: UI concerns only. Pages are thin orchestrators — compose widgets, read state, dispatch events. Never import from `data/` directly — always through domain interfaces. No business logic in widgets. **Never call repository providers directly** (e.g., `ref.read(fooRepositoryProvider)`) — go through a use case or dedicated state provider.
 
 **Features**: Self-contained vertical slices. Features MUST NOT import from other features. Cross-feature logic goes in `core/` or `shared/`.
 
@@ -157,10 +157,35 @@ class CacheFailure extends Failure {
 
 ## Riverpod Rules
 
+**Use Riverpod 2.x syntax — NOT legacy providers:**
+
+⛔ **FORBIDDEN (legacy Riverpod 1.x):**
+- `StateNotifierProvider` — use `NotifierProvider` or `AsyncNotifierProvider`
+- `StateNotifier` — use `Notifier` or `AsyncNotifier`
+- `ChangeNotifierProvider` — never use, doesn't scale
+
+✅ **Required (Riverpod 2.x):**
+```dart
+// Sync state
+final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
+class AuthNotifier extends Notifier<AuthState> {
+  @override
+  AuthState build() => const AuthState.unauthenticated();
+}
+
+// Async state (the workhorse)
+@riverpod
+class Orders extends _$Orders {
+  @override
+  Future<List<Order>> build() async => ref.watch(orderRepositoryProvider).getOrders();
+}
+```
+
 - Use `ref.watch` in `build()` — never `ref.read` (use `ref.read` only in callbacks/event handlers).
 - Use `ref.invalidate` to force refresh — don't manually reset state.
 - Use `autoDispose` by default — only omit when state must survive navigation.
 - Family providers for parameterized queries (e.g., `orderProvider(orderId)`).
+- **Mutation boundaries**: Detail pages must NOT mutate list providers directly. The detail provider invalidates itself; the list refreshes via `ref.listen` or auto-refresh.
 
 ## Bloc Rules
 
@@ -176,6 +201,69 @@ class CacheFailure extends Failure {
 - Use `StrEnum`-like pattern with string values for JSON serialization.
 - ANY entity with a status/state field MUST define a formal FSM using freezed sealed classes.
 - ANY flow with 3+ states and constrained transitions MUST use an FSM (checkout, auth, onboarding).
+
+## Enum Parsing — No Silent Fallbacks
+
+⛔ **FORBIDDEN:**
+```dart
+// BAD — silent fallback hides API contract violations
+static ScanEntityType fromString(String value) {
+  return ScanEntityType.values.firstWhere(
+    (e) => e.name == value,
+    orElse: () => ScanEntityType.item,  // Bug becomes invisible!
+  );
+}
+```
+
+✅ **Required — fail fast or return nullable:**
+```dart
+// GOOD — throw on unknown value
+static ScanEntityType fromString(String value) {
+  return ScanEntityType.values.firstWhere(
+    (e) => e.name == value,
+    orElse: () => throw ArgumentError('Unknown ScanEntityType: $value'),
+  );
+}
+
+// ALSO GOOD — return nullable and handle at call site
+static ScanEntityType? tryFromString(String value) {
+  return ScanEntityType.values.cast<ScanEntityType?>().firstWhere(
+    (e) => e?.name == value,
+    orElse: () => null,
+  );
+}
+```
+
+## Domain Enums — Pure Dart Only
+
+Domain enums must NOT import Flutter (`package:flutter/...`). If you need icons, colors, or other Flutter types, use a presentation-layer extension:
+
+```dart
+// ❌ BAD — domain enum imports Flutter
+// In features/foo/domain/enums/task_type.dart:
+import 'package:flutter/material.dart';  // FORBIDDEN in domain!
+
+enum TaskType {
+  pickup(Icons.inventory),  // IconData in domain = layer violation
+  delivery(Icons.local_shipping);
+  const TaskType(this.icon);
+  final IconData icon;
+}
+
+// ✅ GOOD — pure domain enum + presentation extension
+// In features/foo/domain/enums/task_type.dart:
+enum TaskType { pickup, delivery }
+
+// In features/foo/presentation/extensions/task_type_ui.dart:
+import 'package:flutter/material.dart';
+
+extension TaskTypeUI on TaskType {
+  IconData get icon => switch (this) {
+    TaskType.pickup => Icons.inventory,
+    TaskType.delivery => Icons.local_shipping,
+  };
+}
+```
 
 ```dart
 @freezed
@@ -221,6 +309,8 @@ These limits are strictly enforced. If you find yourself exceeding them, STOP an
 
 **Path parameter safety**: Never use `state.pathParameters['id']!` — the parameter might be null if misconfigured. Always handle the null case with a fallback or error page.
 
+**404 fallback route**: Every router MUST have an `errorBuilder` or fallback route for unknown paths. Never leave navigation to crash on unmatched routes.
+
 # API Client
 
 - Single shared `Dio` instance configured in `core/network/`.
@@ -250,6 +340,24 @@ These limits are strictly enforced. If you find yourself exceeding them, STOP an
 - Before commit: `dart analyze --fatal-infos`, `dart format --set-exit-if-changed .`, `flutter test`.
 - `analysis_options.yaml` must include `strict-casts: true`, `strict-inference: true`, `strict-raw-types: true`.
 - Exclude generated files from analysis: `**/*.g.dart`, `**/*.freezed.dart`.
+
+## Debug Logging — Production Safety
+
+⛔ **FORBIDDEN in production code:**
+- `print()` — writes to stdout, visible in release builds
+- `debugPrint()` — same issue
+- Unguarded logging statements
+
+✅ **Required pattern:**
+```dart
+import 'package:flutter/foundation.dart';
+
+if (kDebugMode) {
+  debugPrint('Debug info: $value');
+}
+```
+
+Use a proper logging package (`logger`, `logging`) with level-based filtering for anything beyond trivial debugging.
 
 ## Recommended Stack
 

@@ -23,6 +23,36 @@ paths: "**/*.dart"
 
 ## Riverpod Patterns (Preferred)
 
+### Riverpod 2.x — Use Modern Syntax
+
+**NEVER use legacy `StateNotifierProvider`** — use Riverpod 2.x `NotifierProvider` or `AsyncNotifierProvider`.
+
+```dart
+// ❌ BAD — legacy Riverpod 1.x syntax
+final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
+  return AuthNotifier(ref.read(authRepositoryProvider));
+});
+
+class AuthNotifier extends StateNotifier<AuthState> { ... }
+
+// ✅ GOOD — Riverpod 2.x syntax
+@riverpod
+class Auth extends _$Auth {
+  @override
+  AuthState build() => const AuthState.unauthenticated();
+
+  Future<void> login(Credentials creds) async { ... }
+}
+
+// Or without code generation:
+final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
+
+class AuthNotifier extends Notifier<AuthState> {
+  @override
+  AuthState build() => const AuthState.unauthenticated();
+}
+```
+
 ### Provider Types — Use the Right One
 
 | Provider | When to Use |
@@ -30,8 +60,10 @@ paths: "**/*.dart"
 | `Provider` | Computed/derived values, DI registration |
 | `FutureProvider` | Single async fetch (no refresh logic) |
 | `StreamProvider` | Real-time data (WebSocket, Firestore) |
-| `NotifierProvider` | Mutable state with methods |
+| `NotifierProvider` | Mutable state with methods (sync) |
 | `AsyncNotifierProvider` | Mutable async state with methods (the workhorse) |
+
+**Legacy types to avoid:** `StateNotifierProvider`, `StateProvider` (for complex state), `ChangeNotifierProvider`
 
 ### Conventions
 - Define providers at the top of the file or in a dedicated `providers/` directory per feature.

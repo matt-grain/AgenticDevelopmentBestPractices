@@ -33,7 +33,21 @@ src/<project_name>/
 
 **Routers**: HTTP concerns ONLY. Parse request, call service, return response. Never business logic, DB queries, or direct model imports. Always declare explicit `response_model` and `status_code`. Use `Annotated[T, Depends(...)]` type aliases.
 
-**Services**: ALL business rules, validations, domain decisions. Receive/return Pydantic schemas — never ORM models or raw `dict`/`list[dict]` to callers. Call repositories for data access — never import `Session` or receive it as parameter. Never manage transactions (`db.commit`, `db.flush`, `db.add`) — that belongs in repositories. Never mutate ORM attributes directly — delegate to repos. Raise domain-specific exceptions (not `HTTPException`). Accept dependencies via `__init__` with Protocol/ABC types — never module-level singletons or global repo imports. A service depends on repositories, not other services.
+**Services**: ALL business rules, validations, domain decisions.
+
+⛔ **FORBIDDEN in services (will fail review):**
+- `from sqlalchemy.orm import Session` — services must not import Session
+- `db: Session` or `session: Session` as parameter — not even in private methods
+- `self._uow.commit()`, `db.commit()`, `db.flush()`, `db.add()` — transaction management belongs in repositories
+- `from ..repositories.foo import foo_repo` (singleton import) — must use DI
+- `Any` without a justification comment — use typed unions or Protocols
+
+✅ **Required in services:**
+- Receive/return Pydantic schemas — never ORM models or raw `dict`/`list[dict]`
+- Call repositories for data access via injected dependencies
+- Raise domain-specific exceptions (not `HTTPException`)
+- Accept dependencies via `__init__` with Protocol/ABC types
+- A service depends on repositories, not other services
 
 **Workflows**: Coordinate multiple services for complex processes. Handle transaction boundaries and compensating actions (sagas). May depend on multiple services but never on repositories directly.
 
@@ -89,12 +103,21 @@ UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 - Store enum values in the database. Use `StrEnum` for JSON serialization. Define in `enums/` directory.
 - ANY entity with a status/state field MUST define a formal FSM in `state_machines/`. Define allowed transitions explicitly. Validate BEFORE applying. Raise on illegal transitions.
 
-# Module Size
+# Module Size — HARD LIMITS (non-negotiable)
 
-- Files: max ~200 lines. Functions: max ~30 lines. Classes: max ~150 lines.
-- Max 5 function arguments — beyond that, group into a Pydantic model or dataclass.
-- Cyclomatic complexity per function: below 10. Nesting depth: max 3 levels.
+These limits are strictly enforced. **If you find yourself approaching them, STOP and refactor before continuing.**
+
+- **Files: max 200 lines.** If a service approaches 150 lines, plan extraction into focused sub-services.
+- **Functions: max 30 lines.** Extract helper methods or decompose into smaller steps.
+- **Classes: max 150 lines, max 10-12 public methods.** A 25-method class is NEVER acceptable — split by responsibility.
+- **Max 5 function arguments** — beyond that, group into a Pydantic model or dataclass.
+- **Cyclomatic complexity per function: below 10.** Nesting depth: max 3 levels.
 - No catch-all `utils.py` — split into topic-specific files.
+
+**When creating a new service:**
+- If the domain has 3+ distinct responsibilities (e.g., scanning, queueing, recording), create separate services immediately
+- A `FooService` that does scanning AND queuing AND recording should be `ScanService`, `QueueService`, `RecordService`
+- Coordinate via a workflow if needed, not a god service
 
 # Design Patterns
 

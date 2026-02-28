@@ -113,6 +113,75 @@ enum OrderStatus {
 }
 ```
 
+### Enum Parsing — No Silent Fallbacks
+
+When parsing enums from strings (e.g., from API), **NEVER silently fall back to a default value**. This hides bugs.
+
+```dart
+// ❌ BAD — silent fallback hides API contract violations
+static ScanEntityType fromString(String value) {
+  return ScanEntityType.values.firstWhere(
+    (e) => e.name == value,
+    orElse: () => ScanEntityType.item,  // Bug becomes invisible!
+  );
+}
+
+// ✅ GOOD — throw on unknown value (fail fast)
+static ScanEntityType fromString(String value) {
+  return ScanEntityType.values.firstWhere(
+    (e) => e.name == value,
+    orElse: () => throw ArgumentError('Unknown ScanEntityType: $value'),
+  );
+}
+
+// ✅ ALSO GOOD — return nullable and handle at call site
+static ScanEntityType? tryFromString(String value) {
+  return ScanEntityType.values.cast<ScanEntityType?>().firstWhere(
+    (e) => e?.name == value,
+    orElse: () => null,
+  );
+}
+```
+
+### Domain Enums — No Flutter Imports
+
+Domain enums must be pure Dart. If you need icons, colors, or other Flutter types:
+1. Keep the domain enum pure (no `IconData`, no `Color`)
+2. Create a presentation-layer extension or mapper
+
+```dart
+// ❌ BAD — domain enum imports Flutter
+// In features/foo/domain/enums/task_type.dart:
+import 'package:flutter/material.dart';  // FORBIDDEN in domain!
+
+enum TaskType {
+  pickup(Icons.inventory),  // IconData in domain = layer violation
+  delivery(Icons.local_shipping);
+
+  const TaskType(this.icon);
+  final IconData icon;
+}
+
+// ✅ GOOD — pure domain enum + presentation extension
+// In features/foo/domain/enums/task_type.dart:
+enum TaskType { pickup, delivery }
+
+// In features/foo/presentation/extensions/task_type_ui.dart:
+import 'package:flutter/material.dart';
+
+extension TaskTypeUI on TaskType {
+  IconData get icon => switch (this) {
+    TaskType.pickup => Icons.inventory,
+    TaskType.delivery => Icons.local_shipping,
+  };
+
+  Color get color => switch (this) {
+    TaskType.pickup => Colors.blue,
+    TaskType.delivery => Colors.green,
+  };
+}
+```
+
 ## Collections & Patterns
 - Use collection-`if` and collection-`for` in list/map literals.
 - Use pattern matching (Dart 3.0+) for type checks and destructuring.

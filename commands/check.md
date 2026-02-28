@@ -73,8 +73,8 @@ Group checks by what's relevant to each file's location:
 
 ### For files in `services/`:
 - Does the service import `Session`, `HTTPException`, or ORM models directly?
-- Does any method receive `Session` as a parameter? (Session belongs in repositories via DI)
-- Does the service call `db.commit()`, `db.flush()`, `db.rollback()`, or `db.add()`? (transaction management belongs in repositories)
+- Does any method (including private `_foo` methods) receive `Session` or `db` as a parameter? (Session belongs in repositories via DI — not even in private methods)
+- Does the service call `self._uow.commit()`, `db.commit()`, `db.flush()`, `db.rollback()`, or `db.add()`? (transaction management belongs in repositories)
 - Does the service mutate ORM model attributes directly? (should delegate to repository methods)
 - Does the service depend on other services? (should use workflows)
 - Are all methods fully typed (params + return)?
@@ -83,6 +83,9 @@ Group checks by what's relevant to each file's location:
 - Does it use raw string comparisons or raw strings in FSM `transition()` calls? (must use enums)
 - Does the class have an `__init__` accepting repository interfaces? (no constructor = DIP violation)
 - Is there a module-level `service = ServiceClass()` singleton? (must use Depends() DI)
+- Does it use inline imports to access repository singletons? (e.g., `from ..repositories.foo import foo_repo` inside a method — must use DI)
+- Does it have more than 12 public methods? (god service — split by responsibility)
+- Are there `Any` type hints without justification comments?
 
 ### For files in `repositories/`:
 - Does the repository contain business logic?
@@ -101,23 +104,32 @@ Group checks by what's relevant to each file's location:
 - Does it use `getByTestId` heavily in co-located tests? (suggest better queries)
 - Does a feature import from another feature?
 
+### For files in `features/*/` (Flutter — all layers):
+- Does the file import from another feature? (e.g., `import 'package:app/features/items/...'` in a transfers feature file — cross-feature import violation)
+- Does it use `print()` or `debugPrint()` without `kDebugMode` guard? (debug logging in production)
+
 ### For files in `features/*/presentation/` (Flutter):
 - Does the widget import from `data/` directly? (should go through domain/)
+- Does it call a repository provider directly? (e.g., `ref.read(fooRepositoryProvider)` — should go through a use case or dedicated provider)
 - Does it contain HTTP/API calls? (should be in data layer)
 - Does it use `setState` for server data? (should use Riverpod/Bloc)
 - Does it use `ChangeNotifier`? (should use Riverpod/Bloc)
+- Does it use `StateNotifierProvider`? (legacy — use `NotifierProvider` or `AsyncNotifierProvider`)
 - Does it have `ref.read` in `build()` method? (should be `ref.watch`)
 - Does a detail page mutate a list provider? (e.g., `ref.read(ordersListProvider.notifier)` in a detail page — cross-mutation violation)
 
 ### For files in `features/*/domain/` (Flutter):
-- Does it import Flutter packages? (domain must be pure Dart)
+- Does it import Flutter packages (`package:flutter/...`)? (domain must be pure Dart — move IconData/Color to presentation extension)
 - Does it import from `data/`? (dependency inversion violation)
 - Are models using `@freezed`? (domain models should be immutable)
+- Do entities have `status` fields typed as `String`? (should be enum)
+- Do enums have `.fromString()` with silent fallback? (should throw on unknown values)
 
 ### For files in `features/*/data/` (Flutter):
 - Do DTOs map to domain entities? (never expose DTOs above data layer)
 - Does it use raw string comparisons instead of enums?
 - Do DTOs have `Map<String, dynamic>?` fields for nested objects? (should use typed nested DTOs)
+- Does it import from `presentation/`? (circular dependency — data must not import from presentation)
 
 ### For files in `router/` or `*_router.dart` (Flutter):
 - Does it use unguarded `!` on `state.pathParameters['id']`? (should use `tryParse` with fallback)

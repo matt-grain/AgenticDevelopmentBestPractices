@@ -149,6 +149,39 @@ For each task in the plan:
 - **Tests exist**: For each new module, verify corresponding test file exists
 - **Tests pass**: All new tests should be green
 
+### 4a.1 — Service Size Verification (Python/FastAPI)
+
+For Python projects, check that no service file exceeds limits:
+
+```bash
+wc -l services/*.py  # All should be under 200 lines
+```
+
+If ANY service file exceeds 200 lines:
+1. Flag as 🔴 CRITICAL — "Service {name} is {N} lines (limit: 200)"
+2. **Do not proceed** until the subagent splits it into focused sub-services
+3. Re-dispatch with explicit instruction: "Split {service} into {responsibility1}_service.py, {responsibility2}_service.py"
+
+Also check method count:
+```bash
+grep -c "def " services/foo_service.py  # Should be under 15 total (public + private)
+```
+
+### 4a.2 — Test Companion Verification (Flutter)
+
+For Flutter projects, explicitly verify test companions exist for presentation layer:
+
+| Source File Created | Required Test File |
+|--------------------|--------------------|
+| `features/foo/presentation/providers/foo_list_provider.dart` | `test/features/foo/presentation/providers/foo_list_provider_test.dart` |
+| `features/foo/presentation/providers/foo_detail_provider.dart` | `test/features/foo/presentation/providers/foo_detail_provider_test.dart` |
+| `features/foo/presentation/pages/foo_list_page.dart` | `test/features/foo/presentation/pages/foo_list_page_test.dart` |
+| `features/foo/presentation/pages/foo_detail_page.dart` | `test/features/foo/presentation/pages/foo_detail_page_test.dart` |
+
+**If ANY presentation test file is missing, flag as ⚠️ PARTIAL and add to gaps.**
+
+This prevents the common failure mode where implementation is "done" but tests are completely absent.
+
 ### 4b — Build Verification Checklist
 
 Create a checklist of everything the phase was supposed to deliver:
