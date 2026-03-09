@@ -57,6 +57,64 @@ flutter test
 
 If any tool fails, report the errors but continue checking — don't stop at the first failure.
 
+## Step 1.5 — Security Scanning (SAST + SCA)
+
+Run security-focused analysis on changed files. These catch vulnerabilities that linters miss.
+
+**Python/FastAPI:**
+```bash
+# SAST — Security linter (only changed files)
+uv run bandit <changed .py files> -c pyproject.toml
+
+# SCA — Dependency vulnerability check (if requirements changed)
+# Only run if pyproject.toml, uv.lock, or requirements*.txt changed
+uv run pip-audit
+```
+
+**Next.js / Vite React:**
+```bash
+# Dependency vulnerability check (if lockfile changed)
+# Only run if package.json or pnpm-lock.yaml changed
+pnpm audit --audit-level=moderate
+```
+
+**Flutter/Dart:**
+```bash
+# SAST — Dart analyzer already runs, but check security-specific rules
+# The standard `dart analyze` catches some issues, but add explicit checks:
+dart analyze --fatal-infos
+
+# SCA — Dependency vulnerability check (if pubspec changed)
+# Only run if pubspec.yaml or pubspec.lock changed
+# Option 1: Google's OSV scanner (recommended)
+osv-scanner --lockfile=pubspec.lock
+
+# Option 2: If osv-scanner not available, check pub.dev advisories manually
+dart pub outdated --mode=security
+```
+
+**Flutter-specific security checks during code review:**
+- Hardcoded API keys in Dart code (check for strings matching `sk-*`, `api_*`, etc.)
+- Insecure HTTP (non-HTTPS) URLs in API clients
+- Missing certificate pinning for sensitive endpoints
+- Sensitive data stored in SharedPreferences without encryption
+- Debug flags left enabled (`kDebugMode` checks missing)
+- Platform channel data not validated
+
+**All projects (if any files changed):**
+```bash
+# Secrets detection — check for accidentally committed secrets
+# Only run on changed files to keep it fast
+git diff --name-only $(git merge-base HEAD <base-branch>)..HEAD | xargs gitleaks detect --no-git --source
+```
+
+**Security findings classification:**
+- 🔴 **CRITICAL**: Hardcoded secrets, SQL injection, command injection, known CVE in dependency
+- 🟡 **WARNING**: Weak crypto, missing input validation, medium-severity CVE
+- 🔵 **NOTE**: Informational findings, low-severity issues
+
+If CRITICAL security findings are found, the verdict MUST be "DO NOT MERGE" regardless of other results.
+
 ## Step 2 — Architecture Check on Changed Files
 
 Read each changed source file and check against the rules. This is NOT a full Grep-over-everything scan — only read and analyze the changed files.
@@ -164,10 +222,31 @@ Group checks by what's relevant to each file's location:
 - Are there `# type: ignore` / `@ts-ignore` / `eslint-disable` without justification?
 - Are there `TODO` / `FIXME` / `HACK` comments without a tracker reference? (must be `// TODO(#1234): reason`)
 - Are there `print()` / `debugPrint()` calls in production code?
-- Are there f-string SQL patterns?
-- Are there hardcoded secrets?
 - Is `Any` / `any` used without justification?
 - Are type annotations complete?
+
+### Security checks for ALL changed files (see `rules/shared/security.md`):
+- **Injection risks**:
+  - Are there f-string/format SQL patterns? (must use parameterized queries)
+  - Is `eval()`, `exec()`, or `subprocess.Popen(shell=True)` used?
+  - Is `yaml.load()` used instead of `yaml.safe_load()`?
+- **Secrets**:
+  - Are there hardcoded strings matching: password, secret, api_key, token, credential?
+  - Are there strings matching patterns: `sk-*`, `pk_*`, `ghp_*`, `aws_*`?
+- **Crypto**:
+  - Is `random` module used for security purposes? (must use `secrets`)
+  - Is MD5/SHA1 used for security? (must use SHA-256+)
+- **Auth**:
+  - Do new endpoints have auth checks?
+  - Are there direct object references without ownership checks?
+- **Error handling**:
+  - Do except blocks expose internal details in responses?
+
+### Dead code and bloat checks:
+- Are there unused imports? (ruff/pyflakes will catch these)
+- Are there unreachable code paths after return/raise?
+- Are there duplicated code blocks (>10 lines appearing 2+ times)?
+- Are there commented-out code blocks >5 lines? (delete or restore, don't leave zombie code)
 
 ## Step 3 — Plan Gap Analysis (if implementation in progress)
 

@@ -2,6 +2,7 @@
 name: flutter
 description: Use this agent to implement Flutter code following strict Clean Architecture, widget patterns, Dart typing, state management (Riverpod/Bloc), and testing conventions.
 model: sonnet
+memory: project
 ltm:
   subagent: true
 ---
@@ -511,3 +512,57 @@ Use a proper logging package (`logger`, `logging`) with level-based filtering fo
 - Loading and empty states for every async widget.
 - Every public use case method: at least 1 happy-path + 1 error-path test.
 - Every Bloc/Cubit: test all state transitions (valid AND invalid).
+
+# Security
+
+**Reference:** See `rules/shared/security.md` for complete security rules. Key points:
+
+## Secure Storage
+- **NEVER** store sensitive data in `SharedPreferences` unencrypted
+- **ALWAYS** use `flutter_secure_storage` for tokens, credentials, PII
+
+```dart
+// BAD
+prefs.setString('auth_token', token);
+
+// GOOD
+FlutterSecureStorage().write(key: 'auth_token', value: token);
+```
+
+## Network Security
+- **ALWAYS** use HTTPS, never HTTP
+- **NEVER** disable certificate verification (`badCertificateCallback = true`)
+- **CONSIDER** certificate pinning for high-security apps
+
+## Hardcoded Secrets
+- **NEVER** hardcode API keys, secrets, credentials in Dart code
+- **USE** `--dart-define` or environment config
+- Flag strings matching: `sk-*`, `api_*`, `secret`, `password`
+
+```dart
+// BAD
+const apiKey = 'sk-1234567890';
+
+// GOOD
+const apiKey = String.fromEnvironment('API_KEY');
+```
+
+## Debug Code
+- **ALWAYS** guard debug code with `kDebugMode`
+- **NEVER** leave `print()` or `debugPrint()` in production
+
+```dart
+if (kDebugMode) {
+  print('Debug info');
+}
+```
+
+## Platform Channels
+- **VALIDATE** all data received from native code
+- **SANITIZE** strings before passing to native evaluators
+
+## Release Builds
+- **ENABLE** obfuscation: `flutter build apk --obfuscate --split-debug-info=build/symbols`
+
+## If `THREAT_MODEL.md` exists
+Read it before implementing features to understand assets, trust boundaries, and sensitive endpoints.

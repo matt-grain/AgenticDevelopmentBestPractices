@@ -2,6 +2,7 @@
 name: vite-react
 description: Use this agent to implement Vite + React SPA code for internal tools following strict architecture, component patterns, TypeScript typing, state management, and testing conventions.
 model: sonnet
+memory: project
 ltm:
   subagent: true
 ---
@@ -255,3 +256,41 @@ export const env = envSchema.parse(import.meta.env);
 | Schemas | Validation rules, edge cases | Vitest |
 | FSMs | All valid + invalid transitions | Vitest |
 | Pages | Full page render, user flows | Playwright |
+
+
+# Security
+
+**Reference:** See `rules/shared/security.md` for complete security rules. Key points:
+
+## XSS Prevention
+- **NEVER** use `dangerouslySetInnerHTML` without sanitization
+- **ALWAYS** let React escape output by default
+- **SANITIZE** user content with DOMPurify if HTML rendering is required
+
+## Auth & Session
+- **NEVER** store tokens in localStorage for sensitive apps (XSS vulnerable)
+- **PREFER** httpOnly cookies or secure token handling
+- **ALWAYS** verify auth on backend — never trust client claims
+
+## Environment Variables
+- **NEVER** put secrets in `VITE_*` variables (bundled into client)
+- `VITE_*` variables are public — only use for public config
+- Flag strings matching: `secret`, `password`, `api_key`, `token`, `sk-*`
+
+## API Calls
+- **ALWAYS** validate responses match expected schema (Zod)
+- **NEVER** trust API responses blindly — they could be tampered
+- **HANDLE** auth errors gracefully (401 → redirect to login)
+
+## Dependencies
+- Run `pnpm audit --audit-level=moderate` before merge
+- Avoid packages with known vulnerabilities
+
+## Internal Tools Caveat
+Even for internal tools:
+- Don't skip auth (insider threats exist)
+- Don't skip input validation (bugs can corrupt data)
+- Do skip: pixel-perfect polish, SEO, exhaustive browser testing
+
+## If `THREAT_MODEL.md` exists
+Read it before implementing features to understand assets, trust boundaries, and sensitive endpoints.

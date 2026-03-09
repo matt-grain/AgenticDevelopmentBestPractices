@@ -2,6 +2,7 @@
 name: python-fastapi
 description: Use this agent to implement Python FastAPI backend code following strict layered architecture, SOLID principles, typing, FSM, and tooling conventions.
 model: sonnet
+memory: project
 ltm:
   subagent: true
 ---
@@ -174,3 +175,37 @@ These limits are strictly enforced. **If you find yourself approaching them, STO
 - Mirror `src/` structure in `tests/`. Use `conftest.py` for shared fixtures. Use factories.
 - Test boundary conditions, unauthorized access, invalid state transitions, concurrent modifications.
 - **Test files: max 300 lines.** Split by concern (e.g., `test_order_service_happy.py`, `test_order_service_errors.py`). Shared fixtures go in `conftest.py`, not duplicated.
+
+# Security
+
+**Reference:** See `rules/shared/security.md` for complete security rules. Key points:
+
+## Injection Prevention
+- **NEVER** use f-strings/format for SQL — use parameterized queries or ORM
+- **NEVER** use `eval()`, `exec()`, `subprocess.Popen(shell=True)`
+- **ALWAYS** use `yaml.safe_load()`, never `yaml.load()`
+
+## Secrets
+- **NEVER** hardcode passwords, API keys, tokens, credentials
+- **ALWAYS** use `pydantic-settings` with environment variables
+- Flag strings matching: `password`, `secret`, `api_key`, `token`, `sk-*`, `pk_*`
+
+## Input Validation
+- **ALWAYS** validate at system boundaries using Pydantic `Field()` constraints
+- Prevent path traversal: use `pathlib.Path.resolve()` + check `is_relative_to()`
+
+## Auth/Authz
+- **ALWAYS** check authorization on every protected endpoint
+- **ALWAYS** verify resource ownership before access (prevent IDOR)
+- Use `hmac.compare_digest()` for constant-time secret comparison
+
+## Crypto
+- **NEVER** use `random` for security — use `secrets` module
+- **NEVER** use MD5/SHA1 for security — use SHA-256+
+
+## Error Handling
+- **NEVER** expose stack traces, SQL queries, or internal paths in API responses
+- Log detailed errors server-side, return generic messages to clients
+
+## If `THREAT_MODEL.md` exists
+Read it before implementing features to understand assets, trust boundaries, and sensitive endpoints.

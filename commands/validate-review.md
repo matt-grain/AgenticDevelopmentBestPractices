@@ -173,6 +173,44 @@ Separately, check each migration plan item from REVIEW.md:
 - Mark as ✅ done, ⚠️ partial, or ❌ not done
 - For partial items, list specifically what was done and what remains
 
+## Step 4.5 — Security Confidence Challenge (Devil's Advocate)
+
+Research shows developers using AI assistants are **more confident** in their code despite it being **less secure** (Stanford/Boneh, ACM CCS 2023). This step explicitly challenges that false confidence.
+
+For each "fixed" security-related finding, ask these adversarial questions:
+
+### Injection Fixes
+- If input validation was added: What if the attacker uses Unicode normalization tricks?
+- If parameterized queries were added: Are ALL query entry points covered, including dynamic ORDER BY/LIMIT?
+- If shell=False was set: Are there other subprocess calls that were missed?
+
+### Auth/Authz Fixes
+- If ownership checks were added: What about admin override paths? Batch operations?
+- If rate limiting was added: Can an attacker use distributed IPs to bypass?
+- If CSRF protection was added: Does it cover all state-changing endpoints including AJAX?
+
+### Crypto Fixes
+- If secrets.token was used: Is the token length sufficient? Is it stored securely?
+- If password hashing was improved: Are existing weak hashes being migrated?
+
+### General Challenge Questions
+For EACH security fix, document answers to:
+1. **Could this fix introduce a NEW vulnerability?** (e.g., fixing SQL injection but adding XSS in error messages)
+2. **Does the fix handle edge cases?** (empty input, very long input, null bytes, unicode)
+3. **Would a malicious input bypass this fix?** (think like an attacker)
+4. **Is the fix applied consistently?** (all similar code paths, not just the reported one)
+
+If ANY challenge question reveals a gap, mark the finding as ⚠️ Partial, not ✅ Pass.
+
+Add a section to REVIEW_VALIDATION.md:
+```markdown
+### 8. Security Confidence Challenge
+| Finding | Fix Applied | Challenge Question | Answer | Confidence |
+|---------|-------------|-------------------|--------|------------|
+| SQL injection in search | Parameterized query | Dynamic ORDER BY covered? | Yes, uses allowlist | ✅ High |
+| Missing auth on /admin | Added role check | Batch endpoints covered? | No, /admin/bulk still open | ⚠️ Gap found |
+```
+
 ## Step 5 — Consolidate into REVIEW_VALIDATION.md
 
 After all agents complete, write `REVIEW_VALIDATION.md` at the project root with this format:

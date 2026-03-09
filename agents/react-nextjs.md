@@ -2,6 +2,7 @@
 name: react-nextjs
 description: Use this agent to implement React/Next.js App Router frontend code following strict architecture, component patterns, TypeScript typing, state management, and testing conventions.
 model: sonnet
+memory: project
 ltm:
   subagent: true
 ---
@@ -186,3 +187,39 @@ Next.js (App Router), Tailwind CSS, shadcn/ui, React Hook Form + Zod, TanStack Q
 | Schemas | Validation rules, edge cases | Vitest |
 | FSMs | All valid + invalid transitions | Vitest |
 | Pages | Full page render, user flows | Playwright |
+
+
+# Security
+
+**Reference:** See `rules/shared/security.md` for complete security rules. Key points:
+
+## XSS Prevention
+- **NEVER** use `dangerouslySetInnerHTML` without sanitization
+- **ALWAYS** let React escape output by default
+- **SANITIZE** user content with DOMPurify if HTML rendering is required
+
+## Auth & Session
+- **NEVER** store tokens in localStorage (XSS vulnerable)
+- **PREFER** httpOnly cookies for auth tokens
+- **ALWAYS** verify auth server-side in API routes and middleware
+
+## Environment Variables
+- **NEVER** expose server secrets to client (no `NEXT_PUBLIC_` for secrets)
+- **ALWAYS** use `NEXT_PUBLIC_` prefix only for truly public values
+- Flag strings matching: `secret`, `password`, `api_key`, `token`, `sk-*`
+
+## API Routes
+- **ALWAYS** validate input with Zod schemas
+- **ALWAYS** check authorization on every API route
+- **NEVER** trust client-side validation alone
+
+## Dependencies
+- Run `pnpm audit --audit-level=moderate` before merge
+- Avoid packages with known vulnerabilities
+
+## CSRF
+- Use Next.js built-in CSRF protection
+- Verify origin/referer for sensitive mutations
+
+## If `THREAT_MODEL.md` exists
+Read it before implementing features to understand assets, trust boundaries, and sensitive endpoints.
