@@ -10,7 +10,7 @@ This document describes a complete development workflow using Claude Code comman
 
 | Workflow | Purpose | Commands |
 |----------|---------|----------|
-| **Development** | Build features from issues | `/plan-release` → `/implement-phase` → `/check` → `/fix-check` |
+| **Development** | Build features from issues | `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
 | **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` → `/heal-review` |
 
 ### All Commands
@@ -18,7 +18,8 @@ This document describes a complete development workflow using Claude Code comman
 | Command | Purpose | Input | Output |
 |---------|---------|-------|--------|
 | `/plan-status` | Dashboard: where are we? | — | Inline report |
-| `/plan-release` | Design features, split into phases | Issue refs or free-text | `IMPLEMENTATION_PLAN.md` |
+| `/plan-release` | Design features, split into phases | Issue refs or free-text | `IMPLEMENTATION_PLAN.md` + per-phase files |
+| `/plan-validate` | Verify plan detail is Sonnet-ready | Plan files | Inline verdict |
 | `/implement-phase N` | Execute a specific phase | Phase number | Code + `IMPLEMENTATION_STATUS.md` |
 | `/check` | Pre-merge architectural gate (read-only) | — | Inline verdict |
 | `/fix-check` | Fix violations found by `/check` | Conversation with `/check` output | Inline report |
@@ -40,8 +41,17 @@ Build features from GitHub Issues or Jira tickets with phased implementation and
 /plan-release GH#301, GH#404
         │
         ▼
-IMPLEMENTATION_PLAN.md (phases, tasks, dependencies)
+IMPLEMENTATION_PLAN.md + per-phase files (detailed specs)
         │
+        ├─ User reviews / edits plan
+        │
+        ▼
+/plan-validate (verify specs are Sonnet-ready)
+        │
+        ├─ ✅ READY → proceed
+        ├─ ⚠️ NEEDS REFINEMENT → fix plan → re-validate
+        │
+        ▼
         ├─ /implement-phase 1 → /check ──┬─→ commit
         ├─ /implement-phase 2 → /check   │
         └─ /implement-phase 3 → /check   │
@@ -69,7 +79,34 @@ What it does:
 4. Splits into ordered phases with dependencies
 5. Writes `IMPLEMENTATION_PLAN.md`
 
-**Output**: `IMPLEMENTATION_PLAN.md` with phases, tasks per phase, file lists, and agent assignments. Review and edit before implementing.
+**Output**: For multi-phase plans, produces separate files:
+- `IMPLEMENTATION_PLAN.md` — overview with phases, dependencies, timeline
+- `IMPLEMENTATION_PLAN_PHASE_1.md` — detailed per-file specs for Phase 1
+- `IMPLEMENTATION_PLAN_PHASE_2.md` — detailed per-file specs for Phase 2
+- etc.
+
+Each per-file spec includes: Purpose, Fields/Methods with types, Constraints, Reference file. This level of detail is critical — Sonnet subagents follow specs literally, so vague specs produce vague code.
+
+Review and edit before implementing. Run `/plan-validate` after editing.
+
+### `/plan-validate` — Verify Plan Quality
+
+Independent 3rd-party validation that the plan is detailed enough for Sonnet subagents:
+
+```
+/plan-validate                         # Reads IMPLEMENTATION_PLAN*.md files
+```
+
+What it checks:
+- **File spec completeness**: Does every file have Purpose, Fields/Methods, Constraints, Reference?
+- **Architecture rules**: Do specs follow layer rules (no raw strings for status, no dicts for returns, etc.)?
+- **Cross-file consistency**: Enum coverage, FSM coverage, test coverage, DI registration
+- **Phase structure**: Per-phase files exist, self-contained, under 300 lines, no cross-phase leaks
+- **Sonnet readability test**: "Would Sonnet produce correct code from this spec alone?"
+
+**Verdict**: READY TO IMPLEMENT / NEEDS REFINEMENT / NOT READY
+
+**When to run**: After `/plan-release` and after any manual edits to the plan files. Fast (2-5 minutes), read-only, no code changes.
 
 ### `/implement-phase N` — Execute a Phase
 
@@ -112,37 +149,36 @@ What it checks:
 
 **Safe to run anytime** — completely read-only, never modifies files.
 
-### `/fix-check` — Fix Violations from `/check`
+### `/fix-check` — Self-Correcting Fix Harness
 
-Structured fix command for violations found by `/check`. Replaces ad-hoc "fix them" requests with a disciplined pipeline:
+A self-correcting harness that fixes violations from `/check` and **loops until clean or bailed out**. Implements a Generator/Evaluator separation pattern inspired by [Anthropic's harness design](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
 ```
-# Run /check first, then when violations are found:
-/fix-check                             # Fixes 🔴 Critical violations
-                                       # Asks before fixing 🟡 Warnings
+/fix-check                             # Runs autonomously — no manual re-runs needed
 ```
 
 What it does:
-1. **Parses** the `/check` violation table from the conversation
-2. **Groups** violations into fix units (max 8 files each, one issue type per unit)
+1. **Runs the evaluator** — executes `/check` logic internally (tooling + architecture rules)
+2. **Groups** violations into fix units (🔴 Critical first, 🟡 Warnings in later iterations)
 3. **Routes** to correct subagent by file type (.dart→flutter, .py→python-fastapi, .tsx→react-nextjs)
 4. **Phase 0**: Runs tooling auto-fixes directly (ruff --fix, eslint --fix, dart fix)
-5. **Phase 1+**: Dispatches subagents with violations, project context, and self-verification checklist
-6. **Re-checks** all touched files after fixes — classifies results as Resolved / Remaining / New
-7. **Retries once** if new violations were introduced (max 1 retry, no infinite loops)
-8. **Reports** final state with verdict: ALL CLEAR / PARTIAL / REGRESSIONS
+5. **Phase 1+**: Dispatches subagents with concrete HOW TO FIX instructions
+6. **Re-evaluates** — re-runs the full `/check` logic on modified files (evaluator ≠ generator)
+7. **Loops** — if violations remain and count decreased, rebuilds manifest and fixes again
+8. **Reverts on regression** — if a fix iteration doesn't improve, `git checkout` the modified files
+9. **Reports** after max 3 iterations with per-violation history across iterations
 
-**Why use `/fix-check` instead of "fix them"?**
-- Every subagent gets the per-stack self-verification checklist (prevents introducing new violations)
-- Correct agent for correct stack (`.dart` fixes never go to a Python agent)
-- Built-in re-check loop catches regressions
-- Retry cap (1) prevents infinite fix loops
+**Key design principles:**
+- **Evaluator is the oracle**: `/check` rules + tooling output are objective truth. The fixer never judges its own work.
+- **Regression = revert**: If an iteration doesn't reduce violations, undo it (Karpathy pattern).
+- **No human in the loop during execution**: The harness runs autonomously up to MAX_ITERATIONS. The human sees the final report.
+- **Iteration budget is scarce**: Fix 🔴 Critical first. Only spend iterations on 🟡 Warnings after critical issues resolve.
 
 **Typical flow:**
 ```
 /check                    → "❌ DO NOT MERGE — 5 critical violations"
-/fix-check                → fixes violations, re-checks, reports
-/check                    → "✅ READY TO MERGE"
+/fix-check                → evaluates → fixes → re-evaluates → loops → clean in 2 iterations
+                          → "✅ ALL CLEAR — 5 violations resolved in 2 iterations"
 ```
 
 ---
@@ -212,9 +248,9 @@ What it does:
 
 **Why plan first?** Subagents produce dramatically better results when given precise instructions ("Replace `data: dict` with `data: ItemCreate` on line 67") versus vague directives ("fix the types"). Planning also catches scope issues before code changes.
 
-### `/fix-review` — Execute the Plan
+### `/fix-review` — Self-Correcting Fix Harness
 
-Reads `FIX_PLAN.md` and executes each fix unit:
+Reads `FIX_PLAN.md` and executes each fix unit with a self-correcting evaluator loop. Same harness pattern as `/fix-check`, adapted for full-codebase scope.
 
 ```
 /fix-review                            # Uses FIX_PLAN.md if present
@@ -225,10 +261,15 @@ What it does:
 2. For each fix unit, dispatches correct subagent with HOW TO FIX
 3. Verifies each unit (Grep re-check, file count)
 4. Runs tooling gate between phases
-5. Plan completion check per phase (catches cross-unit interference)
-6. Updates `REVIEW.md` with fix statuses
+5. **Cross-phase interference check** — re-runs ALL prior phases' grep patterns after each phase
+6. **Full evaluator sweep** after all phases — re-runs every grep pattern from the manifest
+7. **Loops** — if violations remain and count decreased, rebuilds manifest for remaining only (max 2 iterations)
+8. **Reverts on regression** — if iteration 2 doesn't improve over iteration 1, undo it
+9. Updates `REVIEW.md` with fix statuses
 
-**Output**: `REVIEW_FIX_LOG.md` + updated `REVIEW.md`
+**Output**: `REVIEW_FIX_LOG.md` (with iteration tracking) + updated `REVIEW.md`
+
+**Key difference from `/fix-check`**: The evaluator uses the manifest's grep patterns as the oracle (deterministic, fast) rather than re-running 5 review agents. MAX_ITERATIONS = 2 (heavier scope).
 
 ### `/validate-review` — Independent Verification
 
@@ -250,13 +291,15 @@ What it does:
 
 ### `/heal-review` — Fix Remaining Gaps
 
-Targeted fixes for gaps found by validation:
+Targeted fixes for gaps found by validation, with cross-gap interference detection:
 
 ```
 /heal-review                           # Shows gaps, lets you pick
 /heal-review 4, 6, 7                   # Fix specific gaps
 /heal-review 1-3                       # Fix a range
 ```
+
+After healing each gap, `/heal-review` re-runs grep patterns from ALL previously-healed gaps. If healing Gap 3 undoes Gap 1's fix, it detects the regression and re-fixes immediately (max 1 retry per cross-gap conflict).
 
 **Strategy** — work small to large:
 1. `/heal-review <low-effort gaps>` — mechanical fixes
@@ -275,7 +318,8 @@ Targeted fixes for gaps found by validation:
 | **Modifies code?** | No (read-only) | Yes | No (read-only) | Yes |
 | **Output** | Inline verdict | Inline report | `REVIEW.md` | `REVIEW_FIX_LOG.md` |
 | **When to use** | Before every merge | After `/check` finds violations | At release milestones | After `/plan-fix` |
-| **Re-checks after fix?** | N/A | Yes (1 retry max) | N/A | Yes (per phase) |
+| **Self-correcting loop?** | N/A | Yes (max 3 iterations, auto-revert) | N/A | Yes (max 2 iterations, auto-revert) |
+| **Evaluator** | N/A | Runs `/check` logic internally | N/A | Grep patterns from manifest |
 
 ---
 
@@ -332,17 +376,18 @@ Layer 4 — Release-time:  Full /review-architecture pipeline
 
 ## Key Design Principles
 
-### Plan Before Do
+### Plan → Validate → Do
 
-Both workflows separate planning from execution:
-- **Development**: `/plan-release` plans → `/implement-phase` executes
+Both workflows separate planning, validation, and execution:
+- **Development**: `/plan-release` plans → `/plan-validate` verifies → `/implement-phase` executes
 - **Release gate**: `/plan-fix` plans → `/fix-review` executes
 
 This separation improves quality because:
-1. Planning gets dedicated attention
-2. User reviews before code changes
-3. Subagents receive precise instructions
-4. Plans serve as audit documentation
+1. Planning gets dedicated attention with per-file specs
+2. Validation catches vague specs before any code is written
+3. User reviews between each step
+4. Subagents receive precise, Sonnet-calibrated instructions
+5. Per-phase files keep subagent context clean (no cross-phase noise)
 
 ### Orchestrator Delegation Rule
 
@@ -354,17 +399,22 @@ Orchestrator actions:
 - Dispatch subagents via Agent
 - Write review artifacts (REVIEW.md, FIX_PLAN.md, etc.)
 
-### Trust But Verify
+### Trust But Verify (Generator/Evaluator Separation)
 
+Inspired by [Anthropic's harness design](https://www.anthropic.com/engineering/harness-design-long-running-apps): "Models tend to confidently praise the work—even when quality is obviously mediocre." Separating the generator from the evaluator is essential.
+
+- **Generator**: Subagents that fix code — never self-evaluate
+- **Evaluator**: `/check` rules + tooling + grep patterns — the objective oracle
+- **Harness**: Orchestrator that loops generator → evaluator until clean or budget exhausted
 - Validation is never done by the same agent that implemented
 - Tooling is source of truth (tools override Grep heuristics)
-- Plan completion checks catch subagent misses
-- Max 1-2 rework cycles to prevent infinite loops
+- Regression = revert (Karpathy pattern: keep improvements, discard regressions)
+- Max 2-3 iterations to prevent infinite loops
 
 ### Human Checkpoints
 
 - `/plan-fix` → user reviews `FIX_PLAN.md` before `/fix-review`
-- `/plan-release` → user reviews `IMPLEMENTATION_PLAN.md` before `/implement-phase`
+- `/plan-release` → user reviews plan files → `/plan-validate` verifies before `/implement-phase`
 - `/fix-check` → user confirms fix plan before execution
 - Phase checkpoints pause for confirmation
 - Gaps flagged for manual intervention after max retries
@@ -375,7 +425,7 @@ Orchestrator actions:
 
 | Scenario | Commands |
 |----------|----------|
-| Starting a new feature | `/plan-release` → `/implement-phase N` → `/check` |
+| Starting a new feature | `/plan-release` → `/plan-validate` → `/implement-phase N` → `/check` |
 | Before merging a feature branch | `/check` |
 | `/check` found violations | `/fix-check` → `/check` again |
 | New project bootstrap | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` |

@@ -1,0 +1,16 @@
+[project]
+name = "dirty-fastapi"
+version = "0.1.0"
+description = "Test project with intentional violations"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn",
+    "sqlalchemy>=2.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120

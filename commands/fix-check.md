@@ -1,422 +1,355 @@
-# Fix Pre-Merge Check Violations
+# Fix Pre-Merge Check — Self-Correcting Harness
 
-You are a check-fix **orchestrator**. Your job is to fix violations reported by `/check` — the lightweight pre-merge architecture gate. The key discipline: **parse the violation table, group into fix units, dispatch to correct subagents, then re-check to confirm no new violations were introduced.**
+You are a check-fix **harness**. Your job is to fix violations found by `/check` and **keep looping until clean or bailed out** — the human should not need to re-run `/check` manually.
+
+This command implements a Generator/Evaluator separation pattern:
+- **Evaluator**: The `/check` logic (tooling + architecture rules) — the objective oracle
+- **Generator**: Subagents that fix violations — never self-evaluate
+- **Harness**: You — orchestrating the loop, tracking progress, reverting on regression
 
 ## CRITICAL — Delegation Rule
 
-**You MUST NOT write, edit, or modify any source code yourself.** You are an orchestrator, not an implementer. ALL code changes MUST be delegated to a subagent via the `Agent` tool with the correct `subagent_type`.
+**You MUST NOT write, edit, or modify any source code yourself.** You are the harness orchestrator. ALL code changes MUST be delegated to a subagent via the `Agent` tool with the correct `subagent_type`.
 
 Your only allowed actions:
 - **Read** files (to understand context, verify fixes)
 - **Grep/Glob** (to scan for patterns, verify results)
-- **Bash** (to run tooling gates — linters, formatters, tests)
+- **Bash** (to run tooling gates — linters, formatters, tests, git operations)
 - **Agent** (to dispatch implementation work to subagents)
 - **TaskCreate/TaskUpdate** (to track progress)
 
-If you catch yourself about to use Edit/Write on a `.py`, `.ts`, `.tsx`, `.dart`, or any source file — STOP and dispatch a subagent instead.
+If you catch yourself about to use Edit/Write on a source file — STOP and dispatch a subagent instead.
 
-## Step 0 — Parse Violations from Conversation
+## CRITICAL — Harness Loop Contract
 
-1. **Scan the conversation** for the `/check` output. Look for the violation table with this structure:
-   ```
-   | Severity | File | Issue | Rule |
-   |----------|------|-------|------|
-   | 🔴 | ... | ... | ... |
-   | 🟡 | ... | ... | ... |
-   ```
+```
+MAX_ITERATIONS = 3
+iteration = 0
 
-2. **If no violation table is found** in the conversation, tell the user: "No `/check` output found in this conversation. Run `/check` first, then ask me to fix the violations." and stop.
+while iteration < MAX_ITERATIONS:
+    violations = run_evaluator()       # Step 1: /check logic
+    if violations == 0: break          # Clean — done
+    if iteration > 0 and violations >= previous_violations:
+        revert_last_batch()            # Regression — undo
+        break                          # Bail out, report what's left
+    fix(violations)                    # Step 2-3: group + dispatch fixes
+    iteration += 1
+    previous_violations = violations
 
-3. **Parse each row** into a structured list: `{ severity, file, issue, rule }`.
+report(iteration, violations)          # Step 4: final report
+```
 
-4. **Separate by severity:**
-   - 🔴 Critical — will be fixed (default)
-   - 🟡 Warning — will be fixed only if the user explicitly asks
+The loop is unconditional within the max — do NOT pause to ask the human between iterations. The human sees the final report.
 
-5. **Present the parsed violations:**
-   ```
-   Found {N} violations from /check:
-   - 🔴 Critical: {X}
-   - 🟡 Warning: {Y}
+---
 
-   Default: fixing 🔴 Critical only.
-   ```
-   If there are 🟡 Warnings, ask: "Also fix 🟡 Warnings? (y/n)"
+## Step 0 — Snapshot & Scope
 
-6. Also parse the **Tooling** section and **Missing Companions** section from the `/check` output if present — these inform Phase 0 micro-fixes and gap awareness.
+1. **Create a restore point**: Run `git stash create` to capture current state. Store the hash — this is the rollback target if everything goes wrong.
+2. **Determine the diff scope** (same as `/check` Step 0):
+   - Detect base branch: `git rev-parse --verify main 2>/dev/null || git rev-parse --verify master`
+   - Get changed files: `git diff --name-only --diff-filter=ACMR $(git merge-base HEAD <base>)..HEAD`
+   - Filter to source files only
+   - Detect project type from file extensions
+3. **Detect subagent type** (same mapping as `/fix-check`):
 
-## Step 1 — Group into Fix Units
+   | Project Detection | subagent_type |
+   |---|---|
+   | `pyproject.toml` contains `fastapi` | `python-fastapi` |
+   | `next.config.*` exists | `react-nextjs` |
+   | `vite.config.*` exists | `vite-react` |
+   | `pubspec.yaml` contains `flutter` | `flutter` |
+   | Python + MCP patterns | `python-mcp-expert` |
+   | Other | `general-purpose` |
 
-### 1a — Detect Project Type and Subagent
+4. Report: `"Harness started — {N} changed files, project type: {type}. Max 3 iterations."`
 
-Detect the project type and select subagent(s):
+---
 
-| Project Detection | subagent_type |
-|---|---|
-| `pyproject.toml` contains `fastapi` in dependencies | `python-fastapi` |
-| `next.config.ts` / `next.config.js` / `next.config.mjs` exists | `react-nextjs` |
-| `vite.config.ts` / `vite.config.js` exists | `vite-react` |
-| `pubspec.yaml` contains `flutter` in dependencies | `flutter` |
-| Python project with MCP server patterns | `python-mcp-expert` |
-| Other Python project | `general-purpose` |
-| Other JS/TS project | `general-purpose` |
+## Step 1 — Run Evaluator (the Oracle)
 
-**Mixed projects:** Tag each fix unit by file extension to route to the correct subagent. Never send `.dart` files to a Python agent or `.py` files to a React agent.
+This step runs the `/check` logic internally. It is the **source of truth** — never skip it, never approximate it.
 
-### 1b — Phase 0: Micro-fixes (Tooling-solvable)
+### 1a — Run Tooling
 
-Before grouping architectural fixes, extract violations that tooling can fix directly (no subagent needed):
+Run the project's tooling scoped to changed files:
+
+**Python/FastAPI:**
+```bash
+uv run pyright <changed .py files> 2>&1 || true
+uv run ruff check <changed .py files> 2>&1 || true
+uv run lint-imports 2>&1 || true
+uv run pytest 2>&1 || true
+```
+
+**Next.js / Vite React:**
+```bash
+pnpm tsc --noEmit 2>&1 || true
+pnpm eslint <changed .ts/.tsx files> 2>&1 || true
+pnpm vitest run 2>&1 || true
+```
+
+**Flutter:**
+```bash
+dart analyze --fatal-infos 2>&1 || true
+dart format --set-exit-if-changed <changed .dart files> 2>&1 || true
+flutter test 2>&1 || true
+```
+
+Capture all output. Parse errors into a structured list.
+
+### 1b — Run Security Scan
+
+Same as `/check` Step 1.5 — run SAST/SCA on changed files. Parse findings into the violation list.
+
+### 1c — Run Architecture Check
+
+Read each changed source file and apply the `/check` Step 2 architecture rules. This is the same rule set as `/check` — do NOT invent new rules or skip rules.
+
+For each violation found, record: `{ severity, file, line, issue, rule, grep_pattern }`.
+
+The `grep_pattern` field is critical — it's the objective test for whether the fix worked. For each violation, define a Grep command that would detect it. Examples:
+- "Service imports Session" → `grep -n "Session" services/foo.py`
+- "Missing return type" → `grep -n "def foo(" services/foo.py` (check if `->` follows)
+- "Raw string comparison" → `grep -n '"active"' services/foo.py`
+
+### 1d — Count & Classify
+
+```
+Evaluator results (iteration {N}):
+- Tooling errors: {X}
+- Security findings: {Y} (🔴 {a} / 🟡 {b})
+- Architecture violations: {Z} (🔴 {c} / 🟡 {d})
+- Total violations: {X + Y + Z}
+```
+
+Store the total count as `current_violations`.
+
+### 1e — Loop Decision
+
+```
+if current_violations == 0:
+    → Jump to Step 4 (report success)
+
+if iteration > 0:
+    if current_violations >= previous_violations:
+        → Revert last batch (git checkout -- <files modified in last iteration>)
+        → Jump to Step 4 (report with "regression detected, reverted")
+    else:
+        → Log: "Iteration {N}: {previous} → {current} violations (Δ-{diff}). Continuing."
+
+if iteration >= MAX_ITERATIONS:
+    → Jump to Step 4 (report remaining violations)
+```
+
+---
+
+## Step 2 — Group Violations into Fix Units
+
+### 2a — Phase 0: Tooling Auto-fixes
+
+Extract violations that tooling can fix directly (no subagent):
 
 | Violation Type | Fix Action |
 |---|---|
-| Linting errors (ruff, eslint, dart analyze) | Run `ruff check --fix` / `pnpm eslint --fix` / `dart fix --apply` |
-| Formatting issues | Run `ruff format` / `pnpm prettier --write` / `dart format` |
-| Import sorting | Run `ruff check --select I --fix` / auto-fix via eslint |
+| Linting errors (ruff, eslint, dart analyze) | `ruff check --fix` / `pnpm eslint --fix` / `dart fix --apply` |
+| Formatting issues | `ruff format` / `pnpm prettier --write` / `dart format` |
+| Import sorting | `ruff check --select I --fix` |
 
-These run as **Phase 0** before any subagent work.
+Run these immediately. They are free — no subagent cost, no risk.
 
-### 1c — Group Architectural Violations into Fix Units
+### 2b — Prioritize Remaining Violations
 
-Group the remaining violations:
+Sort violations by fix priority:
+1. **🔴 Critical security** — always first
+2. **🔴 Critical architecture** — structural issues that may cause cascading violations
+3. **🟡 Warnings** — only if iteration budget allows
 
-| Grouping Logic | Example |
+On iteration 1: fix 🔴 Critical only (leave 🟡 for later iterations).
+On iteration 2+: include 🟡 Warnings if 🔴 are resolved.
+
+This prevents wasting iteration budget on warnings when critical issues dominate.
+
+### 2c — Group into Fix Units
+
+Same grouping logic as the original `/fix-check`:
+- Same violation type across files → one unit
+- Max 8 files per unit
+- One issue type per unit
+- Tag each unit with `subagent_type`
+
+### 2d — Gather Context (MANDATORY)
+
+Before building fix instructions, the harness MUST:
+1. **Read the violating file** at the exact lines
+2. **Search for existing enums/types** the fix should use
+3. **Check adjacent code** for the correct pattern (find a file that does it right)
+4. **Check behavioral context** for behavioral violations
+
+This step prevents the most common failure: vague instructions → bad fixes → new violations → wasted iteration.
+
+### 2e — Build Concrete HOW TO FIX Instructions
+
+For each fix unit, write explicit before/after transformations. Same quality bar as original `/fix-check` Step 3b:
+
+| BAD (wastes an iteration) | GOOD (fixes in one shot) |
 |---|---|
-| Same violation type across multiple files | "Add return type annotations" → files A, B, C |
-| Multiple violations in the same file (if fixes interact) | "Fix service X" → all issues in that file |
-| Independent violations in the same file | Keep as separate fix units |
+| "Use enums instead of raw strings" | "Replace `"pending"` with `OrderStatus.PENDING` (import from `enums/order.py`)" |
+| "Fix the type annotation" | "Add `-> OrderOut` return type to `get_order()` on line 45" |
+| "Move logic out of router" | "Extract lines 23-48 into `OrderService.create_order()`, call it from router" |
 
-**Rules:**
-- **Max 8 files per fix unit.** If more, split into batches.
-- **One issue type per fix unit.** Don't bundle "add type annotations" with "move DB queries out of service" even if they touch the same file.
-- **Tag each unit** with the `subagent_type` based on file extensions.
+---
 
-### 1d — Build Fix Unit Table
+## Step 3 — Execute Fixes (Generator Phase)
 
-```
-| # | Fix Unit | Files | Subagent | Source Violations |
-|---|----------|-------|----------|-------------------|
-| 0 | Phase 0: Tooling auto-fix | (all) | (direct) | Linting/formatting from tooling section |
-| 1 | Add return type annotations | [file list] | python-fastapi | 🔴 rows 2, 5, 8 |
-| 2 | Move DB queries from services | [file list] | python-fastapi | 🔴 rows 3, 7 |
-| 3 | Extract large component | [file list] | react-nextjs | 🟡 row 12 |
-```
+### 3a — Mark Iteration Start
 
-### 1e — Gather Context for Each Fix Unit (MANDATORY)
-
-Before building HOW TO FIX instructions, the orchestrator MUST read the violation files and their context. For each fix unit:
-
-1. **Read the violating file** at the exact lines from the `/check` output
-2. **Search for existing enums/types** that the fix should use:
-   - Grep for `StrEnum`, `enum class`, `enum ` in the project to find what already exists
-   - If the violation says "should use enum", find the SPECIFIC enum (e.g., `ScanEntityType` in `schemas/`) — don't tell the subagent to "create an enum" if one already exists
-3. **Check adjacent code** for the correct pattern:
-   - If the fix is "use enum instead of raw string", find a file that already does it correctly and include it as a reference example
-4. **Check behavioral context** for behavioral violations (silent no-ops, placeholder UI):
-   - Read the surrounding code to understand what the case SHOULD do (is the backend endpoint implemented? does a repository method exist?)
-   - If the fix requires a backend endpoint that doesn't exist yet, the fix is "throw UnimplementedError with a real tracker ref" — NOT "add a placeholder"
-
-This step prevents the most common failure: subagents receiving vague instructions and introducing new violations while fixing old ones.
-
-## Step 2 — Present Fix Plan
-
-Show the fix plan to the user:
-
-```
-## Fix Plan — {N} violations across {M} fix units
-
-### Phase 0 — Tooling Auto-fix
-{List auto-fixable items}
-
-### Phase 1 — Architectural Fixes
-| # | Fix Unit | Files | Agent |
-|---|----------|-------|-------|
-| 1 | ... | ... | ... |
-| 2 | ... | ... | ... |
-
-Total files affected: {N}
-
-Proceed with fixes?
-```
-
-**Wait for user confirmation before executing.**
-
-## Step 3 — Execute Fixes
-
-### 3a — Phase 0: Run Tooling Auto-fixes
-
-Run the relevant tooling directly (no subagent):
-
-**Python/FastAPI:**
 ```bash
-uv run ruff check <changed files> --fix
-uv run ruff format <changed files>
+# Tag the pre-fix state so we can revert this iteration if needed
+git stash create  # store hash as iteration_restore_point
 ```
 
-**Next.js / Vite React:**
-```bash
-pnpm eslint <changed files> --fix
-pnpm prettier --write <changed files>
-```
+Record all files that will be modified in this iteration (the revert scope).
 
-**Flutter:**
-```bash
-dart fix --apply <changed files>
-dart format <changed files>
-```
+### 3b — Dispatch Subagents
 
-If tooling is not installed, skip and note it.
-
-### 3b — Build Concrete HOW TO FIX Instructions (MANDATORY)
-
-**Before dispatching ANY subagent, you MUST build concrete fix instructions.** Vague prompts like "fix the raw strings" produce bad fixes. For each violation:
-
-1. **Read the violating file** at the exact lines mentioned in the `/check` output
-2. **Identify the existing enum/type** that should be used — search the codebase for it (e.g., `ScanEntityType` already exists in schemas)
-3. **Write the exact transformation** as a before/after or numbered steps
-
-**Examples of BAD vs GOOD HOW TO FIX instructions:**
-
-| BAD (vague) | GOOD (concrete) |
-|---|---|
-| "Use enums instead of raw strings" | "Replace raw string keys `"purchase_order"`, `"serial_number"` in the `loaders` dict (line 180) with `ScanEntityType.PURCHASE_ORDER`, `ScanEntityType.SERIAL_NUMBER` etc. Import `ScanEntityType` from `schemas.operator_workflow`." |
-| "Fix the silent no-op" | "The `qualityCheck` case (line 117-119) sets `isComplete=true` without calling any repository method. Either: (a) add `await repository.submitQualityCheck(...)` if the endpoint exists, or (b) throw `UnimplementedError('QC endpoint not available')` so the operator sees a clear error — never silently pretend success." |
-| "Use domain enum for quality" | "Create `QualityAssessment` enum in `domain/enums/` with values `clean`, `contaminated`, `mixed` matching the closed set in `quality_dropdown.dart`. Change `qualityAssessment: String?` to `QualityAssessment?` in `receive_goods_request.dart`." |
-| "Fix the TODO" | "Line 58: `TODO(tech-debt)` references `#123` — verify this is a real issue in the tracker. If not, create a real issue and update the reference, or remove the TODO entirely." |
-
-### 3c — Dispatch Subagents
-
-For each fix unit, create a tracking task (TaskCreate) and dispatch to the correct subagent via the Agent tool.
-
-The subagent prompt MUST include:
+For each fix unit, dispatch to the correct subagent. The prompt MUST include:
 
 ```
-You are fixing specific architecture violations found by a pre-merge check.
+You are fixing specific architecture violations found by an automated pre-merge check.
 
 PROJECT CONTEXT:
-{Paste relevant sections from ARCHITECTURE.md — tech stack, layer responsibilities}
-{Paste any relevant project-specific instructions from CLAUDE.md}
+{Relevant sections from ARCHITECTURE.md}
 
 FIX UNIT: {title}
 VIOLATIONS TO FIX:
-{For each violation in this unit:}
-- File: {file path}
-  Issue: {issue description}
-  Rule: {rule being violated}
+{For each violation: file, line, issue, rule}
 
-FILES TO MODIFY (you MUST modify ALL of these — do not skip any):
-{complete file list, one per line}
+FILES TO MODIFY (you MUST modify ALL):
+{complete file list}
 
-HOW TO FIX (step-by-step — follow this exactly):
-{The concrete instructions you built in Step 3b — with exact enum names,
-import paths, line numbers, and before/after examples.}
-
-INSTRUCTIONS:
-1. Read each file in the list above
-2. Apply the fix using the HOW TO FIX steps above — follow them exactly
-3. After modifying each file, confirm it follows the expected pattern
-4. Report back which files you modified and any files you could NOT modify (with reason)
+HOW TO FIX (step-by-step — follow exactly):
+{Concrete instructions from Step 2e}
 
 IMPORTANT:
-- Do NOT skip files. Every file in the list needs the fix.
-- Follow the project's existing code style and patterns exactly.
-- If a file doesn't actually have the violation (false positive), note it but move on.
-- NEVER add wrapper code or extra abstractions to "solve" the issue — apply the direct fix.
-- Do NOT introduce new violations while fixing. Specifically:
-  - No new raw string literals for values from a closed set — always use existing enums
-  - No new `Any` / `any` type annotations — use Protocol, Union, or concrete types
-  - No new untyped dict returns — use Pydantic schemas or typed data classes
-  - No new `# type: ignore` / `@ts-ignore` without justification
-  - No silent no-ops (empty switch cases, bare `break`/`pass` that hide failures)
-  - No placeholder text visible to end users without a tracker reference
-  - No hardcoded color/style literals — use theme tokens
-
-BEFORE returning your result, verify EVERY file you created/modified against this checklist. Fix any violations inline — do NOT leave them for a later pass.
-
-FLUTTER:
-- [ ] No Map<String, Object?> or Map<String, dynamic> in presentation — use typed data classes
-- [ ] No raw string comparisons for state/status — use enum values everywhere
-- [ ] No raw string keys in dispatch maps (switch/case, Map literals) — use enum members
-- [ ] No ref.read() inside build() — use ref.watch (ref.read only in callbacks)
-- [ ] No business logic in presentation (no domain object construction in providers/widgets)
-- [ ] No hardcoded Color(0xFF...) or Color(0x66...) — use Theme tokens or named colors from core/theme/
-- [ ] No silent no-ops in switch cases — every case either does real work or throws
-- [ ] No placeholder/stub text visible to end users without a TODO(#issue) reference
-- [ ] Enum serialization uses .name (stable identifier), NOT .label/.displayName (fragile, locale-dependent)
-- [ ] Domain entity fields for values from a closed set use enum types, not String
-- [ ] Entity ID fields are semantically correct — don't store a PO ID in a field named poItemId
-- [ ] No // TODO without a REAL tracker reference (not placeholder #123)
-- [ ] Test helper files respect 200-line limit — split per feature domain if oversized
-- [ ] Run dart analyze --fatal-infos and fix before returning
-
-PYTHON/FASTAPI:
-- [ ] Services depend on repositories only — never on other services (use workflows)
-- [ ] No Session parameter in services — not even private methods
-- [ ] All status/type fields use StrEnum — never raw str, including in Protocol definitions
-- [ ] Dict dispatch keys (e.g., `loaders = {"key": ...}`) use enum members, not raw strings
-- [ ] Router params from a closed set use StrEnum type annotation, not bare `str`
-- [ ] No dict[str, Any] or untyped dict returns — use Pydantic schemas or typed sub-models
-- [ ] `Any` type hints have a justification comment AND a suggestion of Protocol/Union alternative
-- [ ] No // TODO without a REAL tracker reference (not placeholder #123)
-- [ ] Run ruff check and ruff format before returning
-
-REACT/NEXT.JS/VITE:
-- [ ] No Record<string, unknown> or { [key: string]: any } — use Zod schemas
-- [ ] No raw string status comparisons — use const objects or string unions
-- [ ] No dispatch keys as raw strings — use const object keys
-- [ ] No placeholder/stub UI text without a TODO(#issue) reference
-- [ ] No // TODO without a REAL tracker reference
-- [ ] Run tsc --noEmit and eslint before returning
-
-ALL STACKS:
-- [ ] Files under 200 lines, test files under 300 lines, test helpers under 200 lines per domain
-- [ ] Functions under 30 lines
-- [ ] No // TODO, // FIXME, // HACK without a REAL tracker reference — placeholder refs like #123 don't count
-- [ ] No silent no-ops (switch case / if branch that sets success state without doing work)
-- [ ] No fragile serialization (using display labels for round-trip instead of stable identifiers)
+- Do NOT skip files.
+- Follow existing code style exactly.
+- NEVER add wrapper code or abstractions — apply the direct fix.
+- Do NOT introduce new violations:
+  - No new raw strings for closed sets
+  - No new `Any`/`any` without justification
+  - No new untyped dicts
+  - No new `# type: ignore` without justification
+  - No silent no-ops
+  - No placeholder text without tracker reference
 ```
 
-### 3d — Verify Each Fix Unit
+### 3c — Verify Each Fix Unit (Don't Trust the Generator)
 
-After each subagent completes, immediately verify — do NOT trust the subagent's self-report:
+After each subagent completes:
 
-1. **File count check**: Did the subagent modify all files listed in the unit?
-2. **Read the modified files**: Read every modified file (not just 1-2). Check:
-   - The fix actually addresses the violation (not a cosmetic change that leaves the real issue)
-   - No silent no-ops: if a switch/case/if-branch was the violation, verify it now does real work or throws — not just `break`/`pass`/empty body
-   - No placeholder text visible to users without a tracker ref
-3. **Regression Grep**: Run these patterns on ALL modified files to catch common fix-introduced violations:
+1. **File count check**: Did it modify all listed files?
+2. **Read modified files**: Verify the fix actually addresses the violation
+3. **Regression Grep**: Run violation-specific grep patterns on modified files:
+   - The ORIGINAL violation pattern (should now return 0 matches)
+   - Common fix-introduced patterns (new `Any`, new raw strings, new `# type: ignore`)
+4. **If subagent missed files or introduced violations**: re-dispatch ONCE for the specific failures
 
-   **Python files:**
-   ```
-   Grep: `\bdict\[str,` → new untyped dict signatures
-   Grep: `-> Any\b` → new Any returns without justification
-   Grep: `"[a-z_]+".*:.*lambda` → raw string keys in dispatch dicts
-   Grep: `status: str\b` → raw str for status fields
-   Grep: `# TODO` → verify each has a REAL tracker ref (not #123 placeholder)
-   ```
+### 3d — Record Iteration Metadata
 
-   **Dart files:**
-   ```
-   Grep: `Color\(0x` → hardcoded color literals
-   Grep: `\.label\b` in context of serialization/storage → fragile enum round-trip
-   Grep: `'[a-z_]+'` as map keys in dispatch → raw string dispatch
-   Grep: `String\?` on domain entity fields for closed sets → should be enum
-   Grep: `break;` after setting success state → silent no-op
-   Grep: `placeholder\b|pending\b|TBD\b|stub\b` in user-visible strings → unfinished feature
-   ```
-
-   **All files:**
-   ```
-   Grep: `TODO|FIXME|HACK` → verify each references a real issue, not a placeholder
-   wc -l → verify file length limits (200 source, 300 test, 200 test helpers)
-   ```
-
-4. If the subagent missed files or introduced new violations, re-dispatch once for ONLY the missed/broken files with explicit correction instructions.
-
-### 3e — Update Task Status
-
-Mark each tracking task as completed (or partial with notes).
-
-## Step 4 — Verify (Re-check)
-
-This is the critical differentiator from ad-hoc "fix them" requests.
-
-### 4a — Run Tooling Gate on Touched Files
-
-Run the project's tooling scoped to all files modified during this fix cycle:
-
-**Python/FastAPI:**
-```bash
-uv run pyright <all modified files>
-uv run ruff check <all modified files>
+```
+Iteration {N} complete:
+- Fix units dispatched: {X}
+- Files modified: {list}
+- Subagent retries used: {Y}
 ```
 
-**Next.js / Vite React:**
-```bash
-pnpm tsc --noEmit
-pnpm eslint <all modified files>
-```
+Store `previous_violations = current_violations` and `iteration += 1`.
 
-**Flutter:**
-```bash
-dart analyze --fatal-infos
-dart format --set-exit-if-changed <all modified files>
-```
+→ **Loop back to Step 1** (re-run the evaluator on the now-modified codebase)
 
-### 4b — Re-run Architecture Check on Touched Files
+---
 
-Re-read each modified file and re-apply the same `/check` rules (from Step 2 of `/check`) scoped to only those files. Build a new violation table.
+## Step 4 — Final Report
 
-**Pay special attention to these fix-introduced regression patterns:**
+After exiting the loop (clean, regression, or max iterations), produce the report.
 
-| Pattern | What to check | Why fixes introduce this |
+### 4a — Determine Exit Reason
+
+| Exit | Symbol | Meaning |
 |---|---|---|
-| Silent no-op | Switch cases that set success state (`isComplete=true`, return success) without doing real work | Subagent removes the violation text but leaves the empty case body |
-| Fragile serialization | Enums round-tripped via `.label`/`.displayName` instead of `.name` | Subagent adds an enum but serializes via the display string |
-| Placeholder text in UI | Strings like "pending", "TBD", "placeholder" visible to users | Subagent adds TODO comment but leaves the UI text |
-| Entity ID conflation | Field named `fooId` storing a `bar` entity's ID | Subagent renames one field but not the call sites |
-| Raw string in new code | Fix adds new enum but other code paths still use raw strings | Subagent fixes the flagged line but not adjacent code using the same pattern |
-| Fake tracker refs | `TODO(#123)` or `TODO(tech-debt)` without a real issue number | Subagent adds a TODO to satisfy the "must have ref" rule but uses a placeholder |
-| File length after split | Original file still over limit, or split target over limit | Subagent creates the new file but doesn't move enough code out |
+| Clean after iteration N | ✅ | All violations resolved |
+| Max iterations reached | ⚠️ | Improved but not clean |
+| Regression detected (reverted) | ❌ | Last fix batch made things worse — reverted |
 
-### 4c — Compare Results
-
-Categorize each violation from the re-check:
-
-| Category | Meaning | Action |
-|---|---|---|
-| ✅ Resolved | Was in original `/check`, now gone | Count as fixed |
-| ⚠️ Remaining | Was in original `/check`, still present | Report as unfixed |
-| 🆕 New | Was NOT in original `/check`, appeared after fix | Trigger retry |
-
-### 4d — Retry for New Violations (max 1)
-
-If 🆕 New violations were introduced:
-1. Group the new violations into fix units (same logic as Step 1)
-2. Dispatch ONE targeted retry to fix ONLY the new violations
-3. Re-verify after retry (no further retries — report final state)
-
-If no new violations, skip to Step 5.
-
-## Step 5 — Report
-
-Output a concise summary directly to the user (no file output — this is a fast gate):
+### 4b — Output Report
 
 ```
-## Fix Check Results
+## Fix Check Harness — Final Report
 
-### Tooling
-- ruff/eslint/dart analyze: ✅ Pass / ❌ {N} errors remaining
-- Type check: ✅ Pass / ❌ {N} errors remaining
+### Loop Summary
+| Iteration | Violations | Δ | Fix Units | Files Modified |
+|-----------|-----------|---|-----------|----------------|
+| 0 (initial) | {N} | — | — | — |
+| 1 | {N} | -{X} | {Y} | {Z} |
+| 2 | {N} | -{X} | {Y} | {Z} |
+| ... | ... | ... | ... | ... |
 
-### Violations Fixed
-| File | Issue | Status |
-|------|-------|--------|
-| services/foo.py | Missing return type | ✅ Fixed |
-| services/bar.py | DB query in service | ✅ Fixed |
-| components/Baz.tsx | File over 200 lines | ⚠️ Remaining (now 195 lines but has new issue) |
+### Tooling Status
+- pyright/tsc: ✅ Pass / ❌ {N} errors
+- ruff/eslint: ✅ Pass / ❌ {N} errors
+- tests: ✅ Pass / ❌ {N} failures
 
-### Summary
-- ✅ Fixed: {X}/{N}
-- ⚠️ Remaining: {Y}/{N}
-- 🆕 New (after retry): {Z}
+### Violation History
+| Violation | File | Iteration 0 | Iteration 1 | Iteration 2 | Final |
+|-----------|------|-------------|-------------|-------------|-------|
+| Missing return type | services/foo.py | 🔴 | ✅ Fixed | — | ✅ |
+| Raw string status | services/bar.py | 🔴 | 🔴 | ✅ Fixed | ✅ |
+| Service imports Session | services/baz.py | 🔴 | 🔴 | 🔴 | ⚠️ Remaining |
 
 ### Verdict
-✅ ALL CLEAR — all violations resolved. Ready for `/check` re-run to confirm.
-⚠️ PARTIAL — {Y} violations remain. Manual attention needed.
-❌ REGRESSIONS — {Z} new violations introduced. Review before proceeding.
+✅ ALL CLEAR — {N} violations resolved in {M} iterations. Clean merge.
+⚠️ IMPROVED — {X}/{N} violations resolved in {M} iterations. {Y} remaining (listed above).
+❌ REGRESSION — Iteration {M} increased violations. Reverted to iteration {M-1} state. {Y} violations remain.
 ```
 
-If the verdict is not ✅, list the specific remaining/new issues with file paths.
+### 4c — If Not Clean, Provide Actionable Next Steps
+
+For each remaining violation:
+1. Why the harness couldn't fix it (too complex? cascading dependency? needs human judgment?)
+2. Suggested manual approach
+3. Specific file and line to look at
+
+---
 
 ## Design Principles
 
-- **Scoped, not full**: Only fix what `/check` flagged. Don't expand scope.
-- **Right agent for right stack**: Route `.dart` to flutter, `.py` to python-fastapi, `.tsx` to the correct React agent. Never mix.
-- **Context before dispatch**: The orchestrator reads violating files and searches for existing enums/types BEFORE writing fix instructions. Vague prompts produce bad fixes.
-- **Concrete HOW TO FIX**: Every subagent prompt includes exact enum names, import paths, and before/after transformations. "Fix the raw strings" is forbidden — "Replace `"purchase_order"` with `ScanEntityType.PURCHASE_ORDER`" is required.
-- **Self-verification**: Every subagent gets the per-stack checklist covering: raw strings in dispatch, silent no-ops, fragile serialization, placeholder UI text, fake tracker refs, entity ID conflation, hardcoded colors, and file length.
-- **Verify, don't trust**: After each subagent, READ modified files and run regression Greps. Don't trust the subagent's "all done" report.
-- **One retry max**: After fixes, re-check once. If new violations, retry once. Then report. No infinite loops.
-- **No file output**: Report in conversation. This is a fast gate companion to `/check`, not an audit artifact.
-- **Tooling first**: Let formatters and linters handle what they can (Phase 0) before dispatching subagents for architectural fixes.
+1. **The evaluator is the oracle.** The `/check` rules + tooling output are objective truth. The fixer never judges its own work.
+
+2. **Regression = revert.** If a fix iteration doesn't reduce violations, undo it. Inspired by Karpathy's autoresearch: keep improvements, discard regressions.
+
+3. **No human in the loop (during execution).** The harness runs autonomously up to MAX_ITERATIONS. The human sees the final report. Inspired by Karpathy: "Do NOT pause to ask the human if you should continue."
+
+4. **Context before dispatch.** Every subagent gets concrete instructions with exact enum names, import paths, and before/after. Vague prompts waste iterations.
+
+5. **Separate generator from evaluator.** The subagent (generator) fixes code. The harness re-runs `/check` (evaluator) to verify. The generator never self-evaluates. Inspired by Anthropic's harness paper: "self-evaluation exhibits optimism bias."
+
+6. **Iteration budget is scarce — spend wisely.** Fix 🔴 Critical first. Only spend iterations on 🟡 Warnings after critical issues are gone.
+
+7. **One retry per subagent, not per loop.** Within an iteration, each subagent gets one retry for missed files. The LOOP handles macro-level retries. Don't nest retries.
+
+8. **Minimize scaffolding over time.** Track which violation types consistently need 2+ iterations. Those are candidates for better HOW TO FIX templates or rule refinements — reduce the need for the loop rather than relying on it.
+
+---
+
+## Differences from Original `/fix-check`
+
+| Aspect | Original | Harness |
+|---|---|---|
+| Evaluator | Parses `/check` output from conversation | Runs `/check` logic internally |
+| Loop | 1 retry max, then report | Up to 3 iterations with revert |
+| Human in loop | User manually re-runs `/check` | Automatic re-evaluation |
+| Regression handling | Report new violations | Auto-revert + bail out |
+| Violation tracking | Per-fix-unit | Per-violation across iterations |
+| Priority | Fix all at once | 🔴 first, 🟡 later |
+| Exit conditions | Fixed or partial | Clean, improved, or regression |

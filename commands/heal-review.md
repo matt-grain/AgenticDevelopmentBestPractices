@@ -154,6 +154,23 @@ Process tasks in order. For each gap:
 - **No new violations**: Grep modified files for new anti-patterns (`Any`, `# type: ignore`, bare `except:`, `print()`)
 - Mark Task B as in_progress during validation
 
+### 3b.1 — Cross-Gap Interference Check
+
+After validating Gap N, re-run the grep patterns from ALL previously-healed gaps (Gap 1 through Gap N-1). This catches the scenario where healing Gap 3 undoes Gap 1's fix — e.g., a service refactor reintroduces raw strings that Gap 1 had replaced with enums.
+
+**Procedure:**
+1. Maintain a `healed_patterns` list: `[{gap_id, grep_pattern, expected_matches}]`
+2. After each successful validation, add the current gap's pattern to the list
+3. Re-run ALL patterns in the list against the codebase
+4. If any previously-healed pattern now fails (matches > expected):
+   - Log: `"⚠️ Cross-gap regression: Gap {X} re-broken by Gap {N} fix"`
+   - Re-dispatch a targeted fix for ONLY the regressed gap's affected files
+   - Re-validate the regressed gap (max 1 retry)
+   - If still broken after retry, log as `"Cross-gap conflict — needs manual resolution"` and continue
+5. If all prior patterns still pass, proceed to the next gap
+
+This check is fast (just grep) but catches the most insidious failure: fixes that interfere with each other across gaps.
+
 ### 3c — Rework if Needed (max 2 rework cycles per gap)
 - If validation **passes**: Mark Task B as completed. Move to the next gap.
 - If validation **fails**:

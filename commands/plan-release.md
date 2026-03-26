@@ -68,7 +68,7 @@ Phase 2 (depends on Phase 1): Feature C
 Phase 3 (depends on Phase 2): Feature D
 ```
 
-### 2c — Per-Feature Breakdown
+### 2c — Per-Feature Breakdown (Layer Sequence)
 
 For each feature, define the implementation tasks following the project's layered architecture:
 
@@ -110,7 +110,109 @@ For each feature, define the implementation tasks following the project's layere
 11. FSMs — freezed sealed classes for multi-state flows (if applicable)
 12. Tests — Unit tests (domain + data) + widget tests (presentation) + integration tests
 
-### 2d — Present Plan to User
+### 2d — Per-File Specification (CRITICAL for subagent quality)
+
+**Vague plans produce vague implementations.** Sonnet subagents follow instructions literally — if the plan says "add the data layer", they'll create a minimal stub. Every file in the plan MUST have a detailed spec.
+
+For EACH file listed in the plan (new or modified), provide:
+
+#### New Files — Required Detail
+
+```markdown
+#### `features/orders/domain/entities/order.dart`
+**Purpose:** Immutable domain entity for purchase orders
+**Fields:**
+- `id: int`
+- `orderNumber: String`
+- `status: OrderStatus` (enum, NOT String)
+- `items: List<OrderItem>`
+- `createdAt: DateTime`
+**Pattern:** `@freezed` class (see `features/items/domain/entities/item.dart` for reference)
+**Constraints:**
+- Status field MUST use `OrderStatus` enum (define in `domain/enums/order_status.dart`)
+- No `Map<String, dynamic>` — all nested structures must be typed
+```
+
+```markdown
+#### `services/invoice_service.py`
+**Purpose:** Business logic for invoice lifecycle
+**Dependencies (constructor params):** `InvoiceRepository`, `PurchaseOrderRepository`
+**Public methods:**
+- `create_invoice(data: InvoiceCreate, tenant_id: int) -> InvoiceOut` — validates PO exists, creates invoice
+- `approve_invoice(invoice_id: int, tenant_id: int) -> InvoiceOut` — FSM transition Draft→Approved
+- `list_invoices(tenant_id: int, skip: int, limit: int) -> PaginatedResponse[InvoiceOut]` — paginated list
+**Constraints:**
+- Returns Pydantic schemas, never dicts
+- Status transitions via `state_machine.transition()`, never raw string assignment
+- Raises `NotFoundError` / `InvalidTransitionError`, never `HTTPException`
+**Reference:** Follow pattern in `services/purchase_order_service.py`
+```
+
+```markdown
+#### `features/orders/presentation/providers/order_list_provider.dart`
+**Purpose:** Async provider for paginated order list
+**State type:** `AsyncValue<PaginatedResponse<Order>>`
+**Dependencies:** `OrderRepository` via `ref.watch(orderRepositoryProvider)`
+**Methods:**
+- `fetchPage(int page)` — calls repository, updates state
+- `refresh()` — resets to page 1
+**Constraints:**
+- Use `ref.watch` in build, `ref.read` only in callbacks
+- No business logic — delegate to use case if needed
+**Reference:** Follow pattern in `features/items/presentation/providers/item_list_provider.dart`
+```
+
+#### Modified Files — Required Detail
+
+```markdown
+#### `models/__init__.py` (MODIFY)
+**Change:** Add `Invoice` import to `__all__` list
+**Exact change:** Add `from .billing import Invoice` and append `"Invoice"` to `__all__`
+```
+
+```markdown
+#### `router.dart` (MODIFY)
+**Change:** Add route for `OrderDetailPage`
+**Exact change:** Add `GoRoute(path: '/orders/:id', builder: ...)` under the operator shell route
+**Constraints:** Use `int.tryParse(state.pathParameters['id'] ?? '')` with fallback — no unguarded `!`
+```
+
+#### Test Files — Required Detail
+
+```markdown
+#### `tests/services/test_invoice_service.py`
+**Tests to write:**
+- `test_create_invoice_with_valid_po_returns_invoice` — happy path
+- `test_create_invoice_with_nonexistent_po_raises_not_found` — error path
+- `test_approve_invoice_transitions_from_draft_to_approved` — FSM happy path
+- `test_approve_invoice_from_approved_raises_invalid_transition` — FSM error path
+- `test_list_invoices_returns_paginated_response` — pagination
+- `test_list_invoices_empty_returns_zero_total` — edge case
+**Fixtures:** Use existing `OperatorTaskFactory` pattern from `tests/helpers/factories.py`
+**Pattern:** Follow AAA (Arrange-Act-Assert), use `test_<action>_<scenario>_<expected>` naming
+```
+
+```markdown
+#### `test/features/orders/presentation/providers/order_list_provider_test.dart`
+**Tests to write:**
+- `'should load first page on init'` — verify initial fetch
+- `'should return empty list when no orders'` — edge case
+- `'should handle repository error gracefully'` — error path
+**Mocks:** `MockOrderRepository` via mocktail
+**Pattern:** Follow pattern in `test/features/items/presentation/providers/item_list_provider_test.dart`
+```
+
+#### Why This Level of Detail?
+
+| Plan detail level | Sonnet subagent result |
+|---|---|
+| "Add order service" | Creates a file with 1-2 stub methods, no types, no tests |
+| "Add `order_service.py` with `create_order` and `list_orders`" | Creates methods but uses `dict` returns, skips error paths |
+| Full spec (fields, method signatures, constraints, reference file) | Matches existing patterns, uses correct types, handles errors |
+
+The per-file spec is NOT optional boilerplate — it's the primary mechanism for controlling subagent output quality.
+
+### 2e — Present Plan to User
 
 Present the plan as a table and ask for confirmation:
 
@@ -119,10 +221,9 @@ Present the plan as a table and ask for confirmation:
 
 ### Feature 1: {title}
 - Layers: {list}
-- New files: {list}
-- Modified files: {list}
-- Tasks: {numbered list}
-- Estimated complexity: Low/Medium/High
+- New files: {count} (with per-file specs)
+- Modified files: {count}
+- Test files: {count} ({total test cases} test cases specified)
 - Agent: {subagent_type}
 
 ### Feature 2: ...
@@ -131,10 +232,46 @@ Present the plan as a table and ask for confirmation:
 Phase 1: Feature A, Feature B (parallel — no dependencies)
 Phase 2: Feature C (depends on A)
 
-Proceed with implementation?
+Proceed with implementation? (Review the full IMPLEMENTATION_PLAN.md for per-file specs)
 ```
 
 Wait for user confirmation. The user may adjust priorities, reorder features, or exclude some.
+
+### 2f — Write Plan Files
+
+After confirmation, write the implementation plan. **If the plan has 2 or more phases, split into per-phase files** to keep subagent context clean.
+
+#### Single-phase plan (1 phase):
+Write `IMPLEMENTATION_PLAN.md` at the project root with all specs.
+
+#### Multi-phase plan (2+ phases):
+Write separate files:
+
+```
+IMPLEMENTATION_PLAN.md                  ← Overview only: phases, dependencies, timeline, agent assignments
+IMPLEMENTATION_PLAN_PHASE_1.md          ← Full per-file specs for Phase 1
+IMPLEMENTATION_PLAN_PHASE_2.md          ← Full per-file specs for Phase 2
+IMPLEMENTATION_PLAN_PHASE_3.md          ← Full per-file specs for Phase 3
+```
+
+**Why split?** When `/implement-phase 2` runs, the subagent receives `IMPLEMENTATION_PLAN_PHASE_2.md` as context. A monolithic plan pollutes the context with Phase 1/3 specs — Sonnet may confuse files across phases, or the context gets truncated and critical specs are lost.
+
+#### Overview file (`IMPLEMENTATION_PLAN.md`) must contain:
+1. **Header** — date, features included, total phases
+2. **Phase summary table** — phase number, title, file count, agent, dependencies
+3. **Cross-phase dependencies** — what Phase N produces that Phase N+1 consumes
+4. **No per-file specs** — those go in the per-phase files
+
+#### Each per-phase file (`IMPLEMENTATION_PLAN_PHASE_N.md`) must contain:
+1. **Phase header** — title, dependencies on earlier phases (explicit: "requires `Order` entity from Phase 1")
+2. **Agent assignment** — which `subagent_type`
+3. **Per-file specs** (from Step 2d) for EVERY file in this phase — Purpose, Fields/Methods, Constraints, Reference
+4. **Self-contained** — a subagent reading ONLY this file must have everything it needs. Don't reference specs in other phase files without restating them.
+5. **Max 300 lines** — if a phase file exceeds this, the phase is too large. Split it.
+
+**The per-file specs are NOT a summary — they are the detailed contract.** If the plan says "create `order_service.py`" without listing method signatures, the plan is incomplete. Every new file must have: Purpose, Fields/Methods, Constraints, Reference file. Every modified file must have: exact change description.
+
+**Recommend running `/plan-validate`** after the user reviews and edits the plan, to catch gaps before implementation begins.
 
 ## Step 3 — Dispatch Implementation Agents
 
@@ -169,7 +306,7 @@ Select the subagent by matching file types to agent definitions in `~/.claude/ag
 2. Frontend second (page, hooks, components, tests) → `react-nextjs`
 Never send `.tsx` files to a Python agent or `.py` files to a React agent.
 
-The subagent prompt MUST include:
+The subagent prompt MUST include the **per-file specs from the plan** — this is the primary quality mechanism:
 
 ```
 You are implementing a feature for this project.
@@ -181,11 +318,12 @@ PROJECT CONTEXT:
 FEATURE: {title}
 DESCRIPTION: {full description with acceptance criteria}
 
-FILES TO CREATE:
-{list with expected location following project structure}
+FILES TO CREATE (with per-file specs — follow these exactly):
+{Paste the full per-file spec for each file from IMPLEMENTATION_PLAN.md,
+including Purpose, Fields/Methods, Constraints, and Reference file}
 
-FILES TO MODIFY:
-{list with what needs to change}
+FILES TO MODIFY (with exact changes):
+{Paste the modification specs with exact changes described}
 
 IMPLEMENTATION ORDER:
 {numbered steps following the layered architecture}

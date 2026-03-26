@@ -18,11 +18,16 @@ Your only allowed actions:
 
 1. **Parse arguments**: The user provides a phase number (e.g., `/implement-phase 2`). If no phase specified, ask which phase to implement.
 
-2. **Read `IMPLEMENTATION_PLAN.md`** at the project root. If it doesn't exist, tell the user: "No IMPLEMENTATION_PLAN.md found. Run `/plan-release` first to create a release plan." and stop.
+2. **Find the plan files.** Check for:
+   - `IMPLEMENTATION_PLAN_PHASE_{N}.md` (per-phase file) — **preferred**, read this for the target phase
+   - `IMPLEMENTATION_PLAN.md` (monolithic plan) — fallback if no per-phase file exists
+   - If neither exists, tell the user: "No implementation plan found. Run `/plan-release` first to create a release plan." and stop.
 
-3. **Parse the plan**: Extract:
-   - Total phases and their descriptions
-   - The target phase's tasks/features
+3. **Read the plan**: If a per-phase file exists (`IMPLEMENTATION_PLAN_PHASE_{N}.md`), read ONLY that file — it contains all per-file specs for this phase and is self-contained. Also read the overview `IMPLEMENTATION_PLAN.md` for cross-phase context (dependencies, overall timeline). If only a monolithic plan exists, extract the target phase's section from it.
+
+4. **Parse the plan**: Extract:
+   - Total phases and their descriptions (from overview)
+   - The target phase's tasks/features and per-file specs
    - Dependencies (does this phase depend on earlier phases being done?)
    - Files to create and modify for this phase
 
@@ -84,7 +89,7 @@ Select subagent by file types:
 
 The subagent prompt MUST include:
 - Project context from ARCHITECTURE.md / CLAUDE.md
-- Full task specification from the plan
+- **Full per-file specs from the plan** — paste the Purpose, Fields/Methods, Constraints, Reference for EVERY file in this task. This is the primary quality mechanism. If the plan has detailed specs, paste them verbatim. If the plan is vague (no method signatures, no field lists), warn the user and recommend running `/plan-validate` first.
 - Files to create/modify
 - Constraints for the detected project type (same as `/plan-release`)
 - Instructions to run tooling and tests after implementing

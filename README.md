@@ -260,22 +260,23 @@ The disciplined approach uses a **command chain** with mandatory checkpoints:
 /heal-review → /validate-review → done or manual intervention
 ```
 
-### Key Discipline: Orchestrator Pattern
+### Key Discipline: Self-Correcting Harness Pattern
 
-The `/fix-*` commands are **orchestrators**, not implementers:
+The `/fix-*` commands implement a **Generator/Evaluator harness** inspired by [Anthropic's harness design for long-running AI apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Karpathy's autoresearch](https://github.com/karpathy/autoresearch). The core insight: models exhibit optimism bias when self-evaluating — a separate evaluator is essential.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  /fix-review (orchestrator)                             │
+│  /fix-check or /fix-review (harness orchestrator)       │
 │                                                         │
 │  ✗ Cannot write source code directly                   │
-│  ✓ Reads files, parses violations, tracks progress     │
-│  ✓ Dispatches work to typed subagents:                 │
+│  ✓ Runs evaluator (objective oracle: tooling + grep)   │
+│  ✓ Dispatches generators (typed subagents):            │
 │      → python-fastapi (for .py files)                  │
 │      → react-nextjs (for .tsx files)                   │
 │      → flutter (for .dart files)                       │
-│  ✓ Verifies fixes with tooling gates                   │
-│  ✓ Re-checks after each phase (catches regressions)    │
+│  ✓ Re-evaluates after fixes (generator ≠ evaluator)   │
+│  ✓ Loops until clean or budget exhausted (max 2-3)     │
+│  ✓ Auto-reverts on regression (keep only improvements) │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -317,6 +318,11 @@ These practices power development on:
 5. **For security**: Copy `THREAT_MODEL.template.md` to your project root as `THREAT_MODEL.md` and fill in assets, trust boundaries, and known risks. Agents read this during implementation to apply appropriate security controls.
 
 ## Further Reading
+
+### Harness Design & Self-Correcting Agents
+
+- [Harness Design for Long-Running AI Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) - Anthropic Engineering, 2025. Generator/Evaluator separation, sprint contracts, context resets. Core pattern behind `/fix-check` and `/fix-review`.
+- [autoresearch: program.md](https://github.com/karpathy/autoresearch/blob/master/program.md) - Karpathy, 2025. Autonomous experiment loop with objective metric, auto-revert on regression. Inspired the "regression = revert" pattern.
 
 ### Academic Papers
 
