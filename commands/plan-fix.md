@@ -123,22 +123,56 @@ Sub-unit B (update after A is done):
   Step 3: Remove the direct ORM attribute mutation.
 ```
 
-## Step 4 — Assign Phases and Dependencies
+## Step 4 — Assign Phases (by theme + severity)
 
-Order fix units into phases:
+The primary slicing axis is **theme** — what kind of issue is being fixed. Reviewers think in themes; one PR per theme keeps each review tractable. **Severity** (🔴 → 🟡 → 🔵) determines ordering between phases.
 
-- **Phase 0 — Micro-fixes:** Mechanical 1-5 line changes (annotations, comments, renames, enum replacements). These are safe, independent, and should be done first to reduce noise.
-- **Phase 1 — Structural:** File splits, new files (schemas, tests, enums), medium refactors.
-- **Phase 2 — Architectural:** Layer boundary changes, pattern migrations (UoW refactor, TanStack Query, Protocol interfaces).
-- **Phase 3 — CI gates and ongoing:** Tooling configuration, not code changes.
+### Recommended phase template
 
-Within each phase, identify dependencies:
-- Fix unit 5 (create repo method) MUST complete before fix unit 6 (update service to call it)
-- Fix unit 8 (install TanStack Query) MUST complete before fix unit 9 (migrate hooks)
+Walk every fix unit and assign it to one of these themed phases. Phases that have zero fix units are simply skipped. Add new themes if findings call for it (e.g., "Concurrency safety", "i18n leakage").
 
-## Step 5 — Write FIX_PLAN.md
+| # | Theme | Severity | What goes here |
+|---|-------|----------|----------------|
+| 1 | Security findings | 🔴 | Hardcoded secrets, SQL injection, command injection, weak crypto, missing input validation. Always first. |
+| 2 | Layer-boundary violations | 🔴 | Services importing models, routers running queries, presentation calling repositories directly, mcp/ touching repos, etc. Fix early — many later refactors are easier once layers are clean. |
+| 3 | Transaction & DI discipline | 🔴 | Services managing transactions, missing constructor DI, module-level singletons, inline repo imports. |
+| 4 | File/function size violations | 🟡 | Files > 200 lines, functions > 30 lines. Mechanical, parallelizable, high-volume. |
+| 5 | Typing discipline | 🟡 | Missing return types, `Any` without justification, `# type: ignore` without bracketed reason, `dict[str, Any]` returns from services. |
+| 6 | Enum & FSM discipline | 🟡 | Raw string status comparisons, missing FSMs for stateful entities, raw strings in transition() calls. |
+| 7 | Test coverage gaps | 🟡 | New service methods without tests, FSMs without transition tests, custom validators without tests. |
+| 8 | Dead code & cleanup | 🔵 | Unused imports, commented-out blocks > 5 lines, TODO without tracker reference, print() in production. Sweep last so earlier phases don't reintroduce. |
+| 9 | CI gates & tooling | 🔵 | Tooling configuration, not code changes — usually deferred or done in a single small PR. |
 
-Write `FIX_PLAN.md` at the project root with this structure:
+### Within-phase dependencies
+
+Some fix units must run sequentially within a single phase:
+- "Create repo method `deactivate()`" MUST complete before "Update service to call `repo.deactivate()`"
+- "Install TanStack Query" MUST complete before "Migrate hooks to `useQuery`"
+
+Number sub-steps within the phase (`Fix Unit 2.1`, `2.2`) and document the dependency chain at the top of the phase file.
+
+### Cross-phase dependencies
+
+Document only the most load-bearing cross-phase dependencies in the overview file:
+- Phase 2 (layer cleanup) often unblocks Phase 7 (testing) — repos must be injectable before tests can mock them
+- Phase 4 (file splits) may break Phase 5's grep patterns — re-run typing checks after splits
+
+## Step 5 — Decide single-phase or multi-phase output
+
+The split-or-not decision is the same threshold `/plan-release` uses:
+
+| Total fix units | Themes touched | Output |
+|-----------------|----------------|--------|
+| < 30 | 1–2 | **Single-phase**: one `FIX_PLAN.md` with all fix units inline (the original behavior — keeps small audits frictionless). |
+| ≥ 30 | OR ≥ 3 | **Multi-phase**: `FIX_PLAN.md` (overview) + `FIX_PLAN_PHASE_N.md` per phase (mirrors `IMPLEMENTATION_PLAN_PHASE_N.md`). Each phase file is self-contained — a subagent reading only that file has everything it needs. |
+
+The colleague's pain point (hundreds of issues collapsing into one mega-refactor) is exactly the case where multi-phase output prevents the unreviewable PR. Below the threshold, multi-phase output adds ceremony that small audits don't need.
+
+## Step 6 — Write FIX_PLAN.md (and per-phase files if multi-phase)
+
+### 6a — Single-phase output (< 30 fix units, 1–2 themes)
+
+Write a single `FIX_PLAN.md` at the project root:
 
 ```markdown
 # Fix Plan — {project_name}
@@ -146,80 +180,172 @@ Write `FIX_PLAN.md` at the project root with this structure:
 **Date:** {today's date}
 **Based on:** REVIEW.md dated {review date}
 **Project type:** {detected types}
+**Output mode:** single-phase ({N} fix units, {M} themes)
 
 ## Summary
 
-| Phase | Fix Units | Files Affected | Estimated Effort |
-|-------|-----------|---------------|-----------------|
-| Phase 0 — Micro-fixes | N | N | Low |
-| Phase 1 — Structural | N | N | Medium |
-| Phase 2 — Architectural | N | N | High |
-| **Total** | **N** | **N** | |
+| Theme | Severity | Fix Units | Files |
+|-------|----------|-----------|-------|
+| {theme name} | 🔴/🟡/🔵 | N | N |
+| ... | ... | ... | ... |
+| **Total** | | **N** | **N** |
 
-**Agents required:** {list subagent_types needed, e.g., python-fastapi, react-nextjs}
+**Agents required:** {list subagent_types}
 
-## Phase 0 — Micro-fixes
+## Fix Units
 
 ### Fix Unit 1: {title}
-- **Category:** {category from REVIEW.md}
+- **Theme:** {theme}
+- **Severity:** 🔴/🟡/🔵
 - **Agent:** {subagent_type}
-- **Files:** {COMPLETE list, one per line}
+- **Files:** {COMPLETE list}
 - **Violation pattern (Grep):** `{exact pattern}`
 - **Expected after fix:** {what Grep should return — usually "zero matches"}
-- **Reference example:** {file that already follows the correct pattern, or code snippet}
+- **Reference example:** {file or snippet}
 - **HOW TO FIX:**
   1. {concrete step 1}
-  2. {concrete step 2}
-  3. ...
+  2. ...
 
 ### Fix Unit 2: ...
 
-## Phase 1 — Structural
-
-### Fix Unit N: {title}
-- **Category:** ...
-- **Agent:** ...
-- **Dependencies:** Requires Fix Unit {M} to be completed first
-- **Files:** ...
-- **SPLIT PLAN:** (if file splitting)
-  ...
-- **HOW TO FIX:**
-  ...
-
-## Phase 2 — Architectural
-
-### Fix Unit N: ...
-
-## Deferred Items (Phase 3 / not planned)
+## Deferred Items
 {List items from REVIEW.md migration plan that are explicitly deferred, with reason}
 
 ## Execution Notes
-- Run `/fix-review` to execute this plan. It will read this file and follow the fix units in order.
-- Review and edit this plan before running `/fix-review` — remove units you don't want, adjust priorities, refine instructions.
-- For mixed projects: backend and frontend fix units run with different subagents. The agent column determines which.
+- Run `/fix-review` to execute this plan in one pass.
+- For mixed projects: each fix unit's `Agent` field determines the subagent_type.
 ```
 
-## Step 6 — Present to User
+### 6b — Multi-phase output (≥ 30 fix units OR ≥ 3 themes)
 
-After writing `FIX_PLAN.md`, present a summary:
+Write **one overview file plus one file per phase**:
 
 ```
-## Fix Plan Ready
+FIX_PLAN.md                ← Overview only: phase table, themes, dependencies, agent assignments
+FIX_PLAN_PHASE_1.md        ← Full fix-unit specs for the first theme
+FIX_PLAN_PHASE_2.md        ← Full fix-unit specs for the second theme
+FIX_PLAN_PHASE_N.md        ← ...
+```
 
-I've analyzed {N} findings from REVIEW.md and created a detailed fix plan:
+**Why split?** When `/implement-fix-phase 2` runs, the subagent receives `FIX_PLAN_PHASE_2.md` as its sole context. A monolithic plan pollutes the context with unrelated phases — Sonnet may confuse files across themes, or the context gets truncated and critical fix instructions are lost. This is the same disease that `/plan-release` already cured for feature work.
 
-| Phase | Fix Units | Key Changes |
-|-------|-----------|-------------|
-| Phase 0 | N units | {summary: annotations, comments, renames} |
-| Phase 1 | N units | {summary: file splits, schema typing} |
-| Phase 2 | N units | {summary: Protocol interfaces, UoW refactor} |
+#### Overview file (`FIX_PLAN.md`) must contain:
 
-Total: {N} fix units across {N} files.
-Deferred: {N} items (Phase 3 / CI gates).
+```markdown
+# Fix Plan — {project_name}
+
+**Date:** {today's date}
+**Based on:** REVIEW.md dated {review date}
+**Project type:** {detected types}
+**Output mode:** multi-phase ({N} phases, {M} fix units total)
+
+## Phase Summary
+
+| Phase | Theme | Severity | Fix Units | Files | Agent | Depends on |
+|-------|-------|----------|-----------|-------|-------|------------|
+| 1 | Security findings | 🔴 | N | N | {agent} | — |
+| 2 | Layer-boundary violations | 🔴 | N | N | {agent} | — |
+| 3 | Typing discipline | 🟡 | N | N | {agent} | Phase 2 |
+| ... | ... | ... | ... | ... | ... | ... |
+| **Total** | | | **N** | **N** | | |
+
+## Cross-phase Dependencies
+
+- Phase 3 (typing) requires Phase 2 (layer cleanup) — repository return types are easier to annotate after services stop importing models directly.
+- {other dependencies}
+
+## Recommended Execution Order
+
+For each phase: branch → `/implement-fix-phase N` → `/check` → PR → CI → merge → next phase.
+
+**Per-phase specs are in `FIX_PLAN_PHASE_N.md` files.** This overview is for navigation only.
+
+## Deferred Items
+{List items from REVIEW.md migration plan that are explicitly deferred, with reason}
+```
+
+#### Each per-phase file (`FIX_PLAN_PHASE_N.md`) must contain:
+
+```markdown
+# Fix Plan — Phase {N}: {Theme}
+
+**Severity:** 🔴/🟡/🔵
+**Agent:** {subagent_type}
+**Depends on:** Phase {M} (or "none")
+**Fix units:** {count}
+**Files affected:** {count}
+
+## Within-phase Dependencies
+
+{If any sub-units must run sequentially, document here. Otherwise: "All fix units in this phase are independent and can run in any order."}
+
+## Fix Units
+
+### Fix Unit {N}.1: {title}
+- **Files:** {COMPLETE list}
+- **Violation pattern (Grep):** `{exact pattern}`
+- **Expected after fix:** {what Grep should return}
+- **Reference example:** {file or snippet}
+- **HOW TO FIX:**
+  1. {concrete step}
+  2. ...
+
+### Fix Unit {N}.2: ...
+
+## Verification
+
+After all fix units in this phase complete, every grep pattern in this phase MUST return zero matches. Run `/check` to confirm before pushing.
+```
+
+**Per-phase files must be self-contained.** A subagent reading ONLY `FIX_PLAN_PHASE_3.md` must have everything it needs — don't reference instructions in other phase files without restating them. Max ~300 lines per phase file; if a phase grows beyond that, split into 3a / 3b.
+
+## Step 7 — Present to User
+
+After writing the plan, present a summary:
+
+### Single-phase output
+
+```
+## Fix Plan Ready (single-phase)
+
+I've analyzed {N} findings from REVIEW.md and created a single-phase fix plan
+({M} fix units across {K} themes — under the multi-phase threshold).
 
 **FIX_PLAN.md has been written to the project root.**
 
 Next steps:
 1. Review FIX_PLAN.md — edit anything you want to change
-2. Run `/fix-review` to execute the plan
+2. Run `/fix-review` to execute the plan in one pass
+3. After it completes, `/check` → push branch → `gh pr create`
 ```
+
+### Multi-phase output
+
+```
+## Fix Plan Ready (multi-phase)
+
+I've analyzed {N} findings from REVIEW.md and split the work into {P} themed
+phases — each meant to ship as ONE focused PR.
+
+| Phase | Theme | Severity | Fix Units | Files |
+|-------|-------|----------|-----------|-------|
+| 1 | Security findings | 🔴 | N | N |
+| 2 | Layer-boundary violations | 🔴 | N | N |
+| 3 | Typing discipline | 🟡 | N | N |
+| ... | ... | ... | ... | ... |
+
+Files written:
+- FIX_PLAN.md (overview)
+- FIX_PLAN_PHASE_1.md through FIX_PLAN_PHASE_{P}.md (per-phase specs)
+
+Next steps:
+1. Review FIX_PLAN.md and the per-phase files — edit anything you want to change
+2. For each phase (in order):
+   a. Run `/implement-fix-phase N` — creates a `fix-phase-N-<theme>` branch and dispatches the right subagent
+   b. Run `/check` — verify the per-phase grep patterns return zero matches
+   c. `gh pr create` — open the focused PR for review
+   d. After CI is green and reviewer approves, merge
+3. After all phases ship, run `/validate-review` for the full audit
+```
+
+The multi-phase loop mirrors the feature-work loop (`/implement-phase` → `/check` → PR → merge) so reviewers and AI Devs see the same workflow shape whether they're shipping new features or paying down architectural debt.

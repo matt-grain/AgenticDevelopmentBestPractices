@@ -203,7 +203,27 @@ The disciplined approach uses a **command chain** with mandatory checkpoints:
 | Workflow | Purpose | Commands |
 |----------|---------|----------|
 | **Development** | Build features from issues | `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
-| **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` → `/heal-review` |
+| **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/plan-fix-validate` → (per phase: `/implement-fix-phase N` → `/check` → PR → merge) → `/validate-review` → `/heal-review` |
+
+### Symmetry — both workflows have the same shape
+
+The release-gate flow is deliberately a mirror of the development flow. Reviewers and AI Devs see the same loop whether they're shipping a feature or paying down architectural debt:
+
+| Stage | New feature | Refactoring |
+|-------|-------------|-------------|
+| **1. Discovery** | Issue / spec / PRD | `/review-architecture` → `REVIEW.md` |
+| **2. Plan** | `/plan-release` → `IMPLEMENTATION_PLAN.md` (+ `IMPLEMENTATION_PLAN_PHASE_N.md` when ≥2 phases) | `/plan-fix` → `FIX_PLAN.md` (+ `FIX_PLAN_PHASE_N.md` when ≥30 fix units or ≥3 themes) |
+| **3. Validate plan** | `/plan-validate` — catches Sonnet-readability gaps before any subagent runs | `/plan-fix-validate` — same Sonnet-readability check **plus** a unique-to-fix step that re-runs every violation grep pattern right now to catch stale findings (REVIEW drift, already-fixed work) before any subagent dispatches |
+| **4. Per-phase implementation** | `/implement-phase N` — creates `phase-N-<slug>` branch, dispatches subagent | `/implement-fix-phase N` — creates `fix-phase-N-<theme>` branch, dispatches subagent |
+| **5. Per-branch quality gate** | `/check` | `/check` *(same command — branch-agnostic)* |
+| **6. Self-correct on the branch** | `/fix-check` | `/fix-check` *(same harness — works on any branch)* |
+| **7. Ship the phase** | `gh pr create` → CI → reviewer → merge | `gh pr create` → CI → reviewer → merge |
+| **8. Per-phase verification (post-merge)** | *(covered by `/check` + CI)* | `/validate-review N` — re-runs the phase's grep patterns whole-codebase |
+| **9. Final verification (after all phases)** | *(implicit — feature is "done" when its phases ship)* | `/validate-review` — every original `REVIEW.md` finding must be resolved |
+| **10. Self-correct audit gaps** | *(n/a)* | `/heal-review` — only if `/validate-review` finds gaps |
+| **11. Status tracking** | `IMPLEMENTATION_STATUS.md` | `FIX_STATUS.md` |
+
+The middle of the table (stages 4–7) is **identical** — same branch-create → dispatch → check → fix-check → PR → merge loop, just different prefixes (`phase-` vs `fix-phase-`). The asymmetry at the top (refactoring has an explicit audit step) and the bottom (refactoring has explicit completeness verification) reflects refactoring's stronger "did this really do what I claimed?" obligation.
 
 ### Development Workflow
 
@@ -222,14 +242,18 @@ The disciplined approach uses a **command chain** with mandatory checkpoints:
         ├─ ⚠️ NEEDS REFINEMENT → fix plan → re-validate
         │
         ▼
-/implement-phase 1 → /check ──┬─→ commit
-/implement-phase 2 → /check   │
-/implement-phase 3 → /check   │
-                               │
-                      violations found?
-                               │
-                               ▼
-                         /fix-check → re-run /check → commit
+/implement-phase 1 (creates phase-1-* branch) → /check ──┬─→ gh pr create → CI → merge
+/implement-phase 2 (creates phase-2-* branch) → /check   │
+/implement-phase 3 (creates phase-3-* branch) → /check   │
+                                                          │
+                                                  violations found?
+                                                          │
+                                                          ▼
+                                          /fix-check → re-run /check → gh pr create → merge
+
+(Solo prototypes can stay on main; /check then proposes a direct
+commit instead of a PR. See your project's USERGUIDE for the
+formal-vs-fast trade.)
 ```
 
 ### Release Gate Workflow
@@ -243,17 +267,27 @@ The disciplined approach uses a **command chain** with mandatory checkpoints:
         ▼
 /plan-fix                        # Expand findings → concrete HOW TO FIX
         │
+        ├─ Small audit (<30 fix units, 1–2 themes)
+        │   → FIX_PLAN.md (single-phase)
+        │     /fix-review (one harness pass)
+        │
+        └─ Large audit (≥30 fix units OR ≥3 themes)
+            → FIX_PLAN.md (overview)
+            + FIX_PLAN_PHASE_1.md (e.g. Security findings)
+            + FIX_PLAN_PHASE_2.md (e.g. Layer-boundary violations)
+            + FIX_PLAN_PHASE_N.md (...)
+                │
+                ├─ User reviews & edits
+                │
+                ▼
+            For each phase (in dependency order):
+                /implement-fix-phase N (creates fix-phase-N-<theme> branch)
+                /check
+                gh pr create → CI → reviewer → merge
+        │
         ▼
-    FIX_PLAN.md (file lists, instructions per unit)
-        │
-        ├─ User reviews & edits
-        │
-        ▼
-/fix-review                      # Execute plan via subagents
-        │
-        ▼
-/validate-review                 # Independent verification
-        │
+/validate-review                 # Independent verification (whole audit, or
+        │                          /validate-review N for one phase only)
         ├─ ALL CLEAR? → done
         │
         ▼ (if gaps)

@@ -331,9 +331,38 @@ Output a concise report directly to the user (do NOT write a file — this is a 
 
 {If plan gaps exist:}
 ⚠️ PLAN DRIFT — Phase {N} has {X} missing items and {Y} files outside plan scope.
-```
 
-If the verdict is ❌, briefly list the top 3 most critical issues and what to fix.
+### Next action
+
+Detect the current branch via `git rev-parse --abbrev-ref HEAD` and propose accordingly. Only emit a proposal if the verdict is ✅ or ⚠️ — for ❌ verdicts, instead say "fix the critical issues first; do not commit or PR yet."
+
+**On a feature / phase branch (formal mode — recommended):**
+```bash
+git push -u origin <current-branch>
+gh pr create \
+  --title "feat: <one-line summary derived from the diff or current phase>" \
+  --body "$(cat <<'EOF'
+## Summary
+<bullet points from the diff>
+
+## Phases inside this PR (if from /implement-phase)
+- [x] Plan
+- [x] Implement
+- [x] Test
+- [x] Review (this /check)
+- [ ] Deploy
+EOF
+)"
+```
+After CI is green and a reviewer approves, merge with `gh pr merge --auto --squash`.
+
+**On main / master (fast mode — solo prototypes only):**
+```bash
+git add . && git commit -m "<feat|fix|chore>: <summary>"
+```
+Note this skips code review and per-change CI; only suitable for one-shot prototype work. See `docs/USERGUIDE.md` if the project has one for the formal-vs-fast mode discussion.
+
+If the verdict is ❌, briefly list the top 3 most critical issues and what to fix — do NOT include a "next action" proposal in that case.
 
 ## Design Principles
 

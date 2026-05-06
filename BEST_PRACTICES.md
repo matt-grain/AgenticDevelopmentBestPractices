@@ -11,7 +11,7 @@ This document describes a complete development workflow using Claude Code comman
 | Workflow | Purpose | Commands |
 |----------|---------|----------|
 | **Development** | Build features from issues | `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
-| **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` → `/heal-review` |
+| **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/plan-fix-validate` → (per phase: `/implement-fix-phase N` → `/check` → PR → merge) → `/validate-review` → `/heal-review` |
 
 ### All Commands
 
@@ -24,8 +24,10 @@ This document describes a complete development workflow using Claude Code comman
 | `/check` | Pre-merge architectural gate (read-only) | — | Inline verdict |
 | `/fix-check` | Fix violations found by `/check` | Conversation with `/check` output | Inline report |
 | `/review-architecture` | Full codebase audit | — | `REVIEW.md` |
-| `/plan-fix` | Plan fixes with HOW TO FIX | `REVIEW.md` | `FIX_PLAN.md` |
-| `/fix-review` | Execute fix plan | `FIX_PLAN.md` or `REVIEW.md` | `REVIEW_FIX_LOG.md` |
+| `/plan-fix` | Plan fixes with HOW TO FIX. Splits into per-phase files when large. | `REVIEW.md` | `FIX_PLAN.md` (+ `FIX_PLAN_PHASE_N.md` if multi-phase) |
+| `/plan-fix-validate` | Validate the fix plan is Sonnet-ready. Re-runs every violation grep to catch stale patterns. | `FIX_PLAN.md` (+ per-phase files) | Validation report (in conversation) |
+| `/implement-fix-phase N` | Ship one themed phase as a focused PR (refactor analog of `/implement-phase`) | `FIX_PLAN_PHASE_N.md` | `FIX_STATUS.md`, branch `fix-phase-N-<theme>` |
+| `/fix-review [N]` | Execute fix plan (or one phase via `/fix-review N`) with self-correcting loop | `FIX_PLAN.md` or `FIX_PLAN_PHASE_N.md` | `REVIEW_FIX_LOG.md` |
 | `/validate-review` | Independent verification | Review artifacts | `REVIEW_VALIDATION.md` |
 | `/heal-review` | Fix remaining gaps | `REVIEW_VALIDATION.md` | Updated artifacts |
 
@@ -52,14 +54,17 @@ IMPLEMENTATION_PLAN.md + per-phase files (detailed specs)
         ├─ ⚠️ NEEDS REFINEMENT → fix plan → re-validate
         │
         ▼
-        ├─ /implement-phase 1 → /check ──┬─→ commit
-        ├─ /implement-phase 2 → /check   │
-        └─ /implement-phase 3 → /check   │
-                                          │
-                                 violations found?
-                                          │
-                                          ▼
-                                    /fix-check → re-run /check → commit
+        ├─ /implement-phase 1 (creates phase-1-* branch) → /check ──┬─→ gh pr create → CI → merge
+        ├─ /implement-phase 2 (creates phase-2-* branch) → /check   │
+        └─ /implement-phase 3 (creates phase-3-* branch) → /check   │
+                                                                     │
+                                                          violations found?
+                                                                     │
+                                                                     ▼
+                                                  /fix-check → re-run /check → gh pr create → merge
+
+        (Solo prototypes can stay on main; /check then proposes a direct
+        commit instead of a PR. See USERGUIDE for the formal-vs-fast trade.)
 ```
 
 ### `/plan-release` — Design & Phase Splitting
@@ -198,22 +203,40 @@ Audit the entire codebase against architectural rules, fix all violations, verif
         ▼
     /plan-fix
         │
-        ▼
-    FIX_PLAN.md (file lists, HOW TO FIX per unit)
+        ├─ Small audit (<30 fix units, 1–2 themes)
+        │   → FIX_PLAN.md (single-phase, run /fix-review once)
         │
-        ├─ User reviews & edits
-        │
-        ▼
-    /fix-review
-        │
-        ▼
-    /validate-review
-        │
-        ├─ ALL CLEAR? → done
-        │
-        ▼ (if gaps)
-    /heal-review → /validate-review → done or manual intervention
+        └─ Large audit (≥30 fix units OR ≥3 themes)
+            → FIX_PLAN.md (overview)
+            + FIX_PLAN_PHASE_1.md (e.g. Security findings)
+            + FIX_PLAN_PHASE_2.md (e.g. Layer-boundary violations)
+            + FIX_PLAN_PHASE_N.md (...)
+                │
+                ├─ User reviews & edits
+                │
+                ▼
+            For each phase (in dependency order):
+                /implement-fix-phase N (creates fix-phase-N-<theme> branch)
+                        │
+                        ▼
+                    /check
+                        │
+                        ▼
+                    gh pr create → CI → reviewer → merge
+                        │
+                        ▼
+                    /implement-fix-phase N+1 ...
+                │
+                ▼
+        /validate-review
+                │
+                ├─ ALL CLEAR? → done
+                │
+                ▼ (if gaps)
+        /heal-review → /validate-review → done or manual intervention
 ```
+
+The fix loop now mirrors the feature loop: one themed phase = one focused PR, just like one feature phase = one focused PR. Reviewers see the same shape whether they're shipping new features or paying down architectural debt.
 
 ### `/review-architecture` — Full Audit
 
@@ -241,10 +264,15 @@ What it does:
 2. Inspects 2-3 affected files to understand the violation
 3. Finds reference examples of the correct pattern
 4. Writes concrete HOW TO FIX instructions per fix unit
-5. Groups into phases (Phase 0: micro-fixes, Phase 1-2: structural/architectural)
+5. Groups fix units by **theme** (Security findings → Layer-boundary violations → Typing discipline → File-size violations → FSM/enum discipline → Test gaps → Dead code → CI gates), ordered by **severity** (🔴 → 🟡 → 🔵)
 6. Enforces batch size (max 8 files per unit)
+7. **Splits into per-phase files** (`FIX_PLAN_PHASE_N.md`) when ≥30 fix units OR ≥3 themes — each phase ships as one focused PR, mirroring how `/plan-release` splits feature work into per-phase plan files
 
-**Output**: `FIX_PLAN.md` — review and edit before running `/fix-review`.
+**Output**:
+- Small audits → single `FIX_PLAN.md` with all fix units inline (run with `/fix-review`)
+- Large audits → `FIX_PLAN.md` overview + `FIX_PLAN_PHASE_N.md` per phase (run each with `/implement-fix-phase N`)
+
+Review and edit before executing.
 
 **Why plan first?** Subagents produce dramatically better results when given precise instructions ("Replace `data: dict` with `data: ItemCreate` on line 67") versus vague directives ("fix the types"). Planning also catches scope issues before code changes.
 

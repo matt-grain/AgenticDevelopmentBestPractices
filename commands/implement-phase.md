@@ -61,6 +61,38 @@ Proceed with implementation?
 
 Wait for confirmation.
 
+## Step 1.5 — Create the phase branch
+
+Before any subagent runs, isolate the work on its own git branch. This is what enables **formal mode** — each phase output becomes one PR with a CI gate before merge. Skipping this step puts you in **fast mode** (direct commits to main), which is fine for solo prototypes but loses code review and per-phase CI.
+
+Branch creation is reversible (`git branch -D <name>` if you need to back out), so this does not break the orchestrator's "no source code edits" rule — branches are not source.
+
+1. **Detect the main branch:**
+   ```bash
+   git rev-parse --verify main 2>/dev/null || git rev-parse --verify master
+   ```
+   Use whichever exists; treat both as "the trunk" for the rules below.
+
+2. **Inspect the current branch and working tree:**
+   - On trunk (`main`/`master`) with **clean** working tree → proceed to step 3.
+   - On trunk with **dirty** working tree → stop and tell the user: "Working tree has uncommitted changes. Stash or commit them before starting Phase {N}." Wait.
+   - Already on `phase-{N}-*` (re-running this phase) → skip step 3, continue to Step 2.
+   - On any other branch → ask: "You're on `{branch}`, not trunk. Stay here (treat as the phase branch), or switch to trunk and create `phase-{N}-*`?" Wait for the answer.
+
+3. **Derive the slug** from the phase title in the plan. Lowercase, kebab-case, max ~30 chars, ASCII only. Examples:
+   - "Phase 4 — Pages P0 (Portfolio + Component View)" → `phase-4-pages-p0`
+   - "Phase 7 — MCP Server" → `phase-7-mcp-server`
+
+4. **Create the branch:**
+   ```bash
+   git checkout -b phase-{N}-{slug}
+   ```
+   If the branch already exists, ask the user whether to switch to it (re-run scenario) or pick a different name.
+
+5. **Confirm:** print the branch name and the chosen mode (formal / fast) so the user has one last chance to redirect before any subagent runs. Wait for "yes" / "go" / Enter.
+
+If the user explicitly chooses to stay on trunk for fast mode, note that in the Step 6 final report so the "Next steps" section proposes the right command (commit, not PR).
+
 ## Step 2 — Execute Phase Tasks
 
 For each task in the phase:
@@ -371,9 +403,34 @@ Summarize the phase:
 ### Gaps (if any):
 {List any partial/missing items}
 
-### Next steps:
+### Next steps
+
+Branch the user is currently on determines the recommended next move:
+
+**Formal mode** (you're on `phase-{N}-{slug}` from Step 1.5 — this is the default and recommended path):
 1. Run `/check` to verify no architectural violations
-2. Commit: `git add . && git commit -m "feat: {phase summary}"`
+2. If green, push the branch and open a PR:
+   ```bash
+   git push -u origin phase-{N}-{slug}
+   gh pr create \
+     --title "feat: Phase {N} — {phase title}" \
+     --body "Implements Phase {N} of the release plan.
+
+   ## Phases inside this PR
+   - [x] Plan
+   - [x] Implement
+   - [x] Test
+   - [x] Review (pending CI)
+   - [ ] Deploy
+
+   See IMPLEMENTATION_STATUS.md for the full per-phase entry."
+   ```
+3. After CI passes and a reviewer approves, merge the PR (squash recommended for clean history)
+4. Switch back to trunk and run `/implement-phase {N+1}` for the next phase
+
+**Fast mode** (you stayed on trunk in Step 1.5 — solo prototypes only):
+1. Run `/check` to verify no architectural violations
+2. Commit directly: `git add . && git commit -m "feat: Phase {N} — {phase title}"`
 3. Run `/implement-phase {N+1}` for the next phase
 
 IMPLEMENTATION_STATUS.md has been updated with full details.

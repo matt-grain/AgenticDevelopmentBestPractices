@@ -7,8 +7,12 @@ You are a review validation orchestrator. Your job is to verify that ALL finding
 1. Read `REVIEW.md` at the project root. If it doesn't exist, tell the user to run `/review-architecture` first and stop.
 2. Check the `**Date:**` field in REVIEW.md. If it is older than 7 days, warn the user: "This review is from {date}. The codebase may have changed. Consider running `/review-architecture` for a fresh audit before validating." Wait for confirmation before proceeding.
 3. Detect the project type using the same logic as `/review-architecture` (check for `pyproject.toml`, `next.config.*`, `vite.config.*`, `pubspec.yaml` with `flutter`, `package.json`).
-3. Parse the **Detailed Findings** tables and the **Migration Plan** checklist from REVIEW.md. Build an internal list of every actionable finding (🔴 Critical and 🟡 Warning severity) and every migration plan item.
-4. **Check for FIX_PLAN.md** at the project root. If it exists, parse the **Deferred Items** section to build a deferred list. Any finding or migration plan item that matches a deferred item will be marked `⏭️ DEFERRED` instead of `❌ FAIL`. Deferred items are **excluded from the completion percentage** — they were intentionally postponed, not forgotten. They are still listed in the report for visibility.
+3. **Parse the optional phase argument.** This command accepts an optional phase number: `/validate-review N` validates only the fix units from `FIX_PLAN_PHASE_{N}.md`. Without an argument, validate every actionable finding from `REVIEW.md` (the original behavior).
+4. Parse the **Detailed Findings** tables and the **Migration Plan** checklist from REVIEW.md. Build an internal list of every actionable finding (🔴 Critical and 🟡 Warning severity) and every migration plan item. **If a phase number was supplied**, narrow this list to only the findings whose grep patterns appear in `FIX_PLAN_PHASE_{N}.md` — the user is asking "did THIS phase's PR actually resolve its scope?", not "is the whole audit clean?".
+5. **Check for FIX_PLAN.md / FIX_PLAN_PHASE_*.md** at the project root.
+   - If `FIX_PLAN.md` is single-phase, parse its **Deferred Items** section.
+   - If multi-phase, parse the overview's deferred list AND the phase file (if a phase number was supplied — the per-phase file may have its own deferrals).
+   Any finding or migration plan item that matches a deferred item will be marked `⏭️ DEFERRED` instead of `❌ FAIL`. Deferred items are **excluded from the completion percentage** — they were intentionally postponed, not forgotten. They are still listed in the report for visibility.
 
 ## Step 1 — Build the Verification Matrix
 

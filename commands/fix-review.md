@@ -65,9 +65,27 @@ git stash create  # store hash as harness_restore_point
 
 This is the nuclear rollback if everything goes wrong.
 
-### Step 0b — Check for FIX_PLAN.md
+### Step 0b — Check for FIX_PLAN.md (single-phase or multi-phase)
 
-Same as original: if `FIX_PLAN.md` exists, use it as the execution plan and skip Step 1.
+If `FIX_PLAN.md` exists, use it as the execution plan and skip Step 1. Two formats are now possible:
+
+**Single-phase plan** — `FIX_PLAN.md` contains all fix units inline (legacy / small audits). Run them all in one harness pass as before.
+
+**Multi-phase plan** — `FIX_PLAN.md` is an overview pointing at `FIX_PLAN_PHASE_*.md` per-phase files. In this case:
+
+1. Parse the optional phase argument: the user may invoke `/fix-review N` to run only phase N.
+2. **If a phase number is supplied** → load only `FIX_PLAN_PHASE_{N}.md` as the manifest source. The harness loop runs against that single phase's fix units.
+3. **If no phase number is supplied** AND multi-phase files exist → the right tool is `/implement-fix-phase` (one phase = one PR) rather than running all phases in one pass. Tell the user:
+   ```
+   FIX_PLAN.md is multi-phase ({P} phases). Recommended:
+     - Run `/implement-fix-phase N` to ship phase N as a focused PR (formal mode).
+     - Or run `/fix-review N` to run the harness loop on phase N only without branching.
+   Pass `--all-phases` to run every phase in one pass (not recommended for large refactors).
+   ```
+   Wait for the user to pick a phase or pass `--all-phases`.
+4. **If `--all-phases` is supplied** → run the full harness loop sequentially across every phase, treating the union of all `FIX_PLAN_PHASE_*.md` fix units as the manifest. This is the legacy "run everything" behavior; useful only for small multi-phase plans where the overhead of one PR per phase isn't worth it.
+
+Single-phase plans behave exactly as before — no flags needed.
 
 ### Step 0c — Regression Pre-flight
 
