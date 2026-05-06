@@ -230,6 +230,42 @@ For EACH file listed in the plan (new or modified), provide:
 
 The per-file spec is NOT optional boilerplate — it's the primary mechanism for controlling subagent output quality.
 
+### 2d.5 — Identify Mechanical Rules to Enforce
+
+For each architectural rule introduced or reinforced by this release, decide whether it can be enforced by a **mechanical linter** (deterministic, AST-based) instead of relying on review-time judgment. Mechanical rules are cheaper to enforce, faster to verify in `/fix-check` loops, and don't drift between human reviewers.
+
+**Walk the rules touched by this release:**
+- Layer-boundary rules ("services don't import models", "routers don't import sqlalchemy", "domain doesn't import frameworks") — almost always mechanical
+- Discipline rules ("StrEnum only", "no raw string status comparisons", "Mapped[T] = mapped_column()") — mechanical
+- Style rules ("file ≤ 200 lines", "function ≤ 30 lines") — mechanical
+- Pattern rules ("every useEffect has a `// WHY:` comment", "no fetch in useEffect", "import.meta.env only in lib/env.ts") — mechanical
+- Semantic rules ("permissions enforced server-side", "all FSM transitions logged") — usually NOT mechanical (cross-system or intent-based — leave to LLM `/check`)
+
+**For each mechanical-eligible rule:**
+
+1. Look in `recipes/linters/<project-type>/` for a recipe whose AST shape matches.
+2. If exact recipe match → record as a one-line `/scaffold-linter` invocation.
+3. If similar pattern but no exact match → record as adaptable, note which recipe to inspire from.
+4. If no recipe → linter must be authored from scratch; lower priority, may be deferred to a follow-up.
+
+**Add this section to `IMPLEMENTATION_PLAN.md` (the overview file in multi-phase, or inline in single-phase):**
+
+```markdown
+## Mechanical Rules to Enforce
+
+| Rule | Apply at phase | Recipe match | Scaffold command |
+|------|---------------|--------------|------------------|
+| Services must not import models | Phase 2 (after services exist) | python-fastapi-layered/check_no_models_in_services.py | `/scaffold-linter no-models-in-services --recipe python-fastapi-layered/check_no_models_in_services.py` |
+| Every useEffect has a // WHY: comment | Phase 1 (from day one) | vite-react/check_useeffect_has_why.ts | `/scaffold-linter useeffect-has-why --recipe vite-react/check_useeffect_has_why.ts` |
+| ... | ... | ... | ... |
+
+These linters are scaffolded at the appropriate phase — some rules apply from day one (file size, useEffect WHY); others wait for the layer or specific files to exist (enum discipline waits for `enums/` to exist; service-layer rules wait for `services/` to exist). Run `/scaffold-linter` inline when the prerequisite code is present.
+
+Once scaffolded, linters run automatically via pre-commit on every commit AND inside `/check` — converting LLM-judgment evaluators into deterministic mechanical evaluators (the Anthropic harness paper's core insight).
+```
+
+If no mechanical rules apply (rare — most architectural changes have at least one), write `"No new mechanical rules introduced by this release."` instead of an empty table.
+
 ### 2e — Present Plan to User
 
 Present the plan as a table and ask for confirmation:
@@ -278,7 +314,8 @@ IMPLEMENTATION_PLAN_PHASE_3.md          ← Full per-file specs for Phase 3
 1. **Header** — date, features included, total phases
 2. **Phase summary table** — phase number, title, file count, agent, dependencies
 3. **Cross-phase dependencies** — what Phase N produces that Phase N+1 consumes
-4. **No per-file specs** — those go in the per-phase files
+4. **`## Mechanical Rules to Enforce`** section (from Step 2d.5) — table of candidate linters + which phase they apply at
+5. **No per-file specs** — those go in the per-phase files
 
 #### Each per-phase file (`IMPLEMENTATION_PLAN_PHASE_N.md`) must contain:
 1. **Phase header** — title, dependencies on earlier phases (explicit: "requires `Order` entity from Phase 1")

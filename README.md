@@ -90,7 +90,8 @@ This repository contains battle-tested patterns for **controlled** AI-assisted d
 ├── agents/           # Role-specific AI personas with bounded responsibilities
 ├── rules/            # Architectural constraints injected into every session
 ├── skills/           # Reusable capabilities agents can invoke
-└── commands/         # Standardized operations
+├── commands/         # Standardized operations
+└── recipes/          # Reference catalog (mechanical linters per project type)
 ```
 
 ### Core Principles
@@ -328,8 +329,11 @@ The `/fix-*` commands implement a **Generator/Evaluator harness** inspired by [A
 ```
 Layer 1 — Write-time:    Rules auto-load → guides code generation
                          Security rules prevent injection, hardcoded secrets
-Layer 2 — Commit-time:   Tooling blocks mechanical violations
+Layer 2a — Commit-time:  Universal tooling (pyright/ruff/eslint/tsc + SAST/SCA)
                          SAST (bandit/semgrep) + SCA (pip-audit/npm audit)
+Layer 2b — Commit-time:  Project-specific mechanical linters (pre-commit hooks)
+                         Scaffolded by /scaffold-linter from recipes/linters/ catalog
+                         Architecture rules become executable AST checks
 Layer 3 — Merge-time:    /check → /fix-check → re-run /check
                          Security scanning + secrets detection (gitleaks)
 Layer 4 — Release-time:  Full /review-architecture pipeline
@@ -354,11 +358,12 @@ These practices power development on:
 
 ## Getting Started
 
-1. Copy relevant `agents/`, `rules/`, and `skills/` to your `.claude/` directory
+1. Run `bash deploy.sh` to sync `agents/`, `commands/`, `rules/`, `skills/`, and `recipes/` into `~/.claude/`. Use `bash deploy.sh --dry-run` to preview, or `bash deploy.sh recipes commands` for selective sync.
 2. Reference agents in your Claude Code sessions
 3. Rules are automatically injected based on file context
 4. Invoke skills with `/skill-name` commands
-5. **For security**: Copy `THREAT_MODEL.template.md` to your project root as `THREAT_MODEL.md` and fill in assets, trust boundaries, and known risks. Agents read this during implementation to apply appropriate security controls.
+5. Mechanize architectural rules with `/scaffold-linter` — converts `ARCHITECTURE.md` rules into deterministic pre-commit hooks using the `recipes/linters/` catalog as exemplars
+6. **For security**: Copy `THREAT_MODEL.template.md` to your project root as `THREAT_MODEL.md` and fill in assets, trust boundaries, and known risks. Agents read this during implementation to apply appropriate security controls.
 
 ## Further Reading
 

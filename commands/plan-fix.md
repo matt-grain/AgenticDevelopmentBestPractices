@@ -186,6 +186,49 @@ The split-or-not decision is the same threshold `/plan-release` uses:
 
 The colleague's pain point (hundreds of issues collapsing into one mega-refactor) is exactly the case where multi-phase output prevents the unreviewable PR. Below the threshold, multi-phase output adds ceremony that small audits don't need.
 
+## Step 5.5 — Identify Recurring Patterns Worth Promoting to Linters
+
+Some violations recur often enough to deserve mechanical enforcement going forward — not just "fix this batch" but "prevent regressions automatically". This step surveys the fix units and proposes new linters for the project's pre-commit pipeline.
+
+**Scan all fix units and group by violation pattern:**
+- A fix unit's `Violation pattern (Grep)` field is the seed
+- Group fix units that share or trivially differ in their grep pattern
+- Count: how many distinct files does each pattern hit?
+
+**Promote a pattern to a linter candidate when:**
+- The same pattern hits ≥ 2 files in this audit, OR
+- The pattern reappears across audits (check `git log` of `REVIEW.md` for prior occurrences)
+
+**For each promotion candidate, look for a recipe match:**
+
+1. Detect project type (`python-fastapi`, `python-clean-arch`, `vite-react`, ...)
+2. Inspect `recipes/linters/<project-type>/` README for an existing check whose pattern matches
+3. If exact match → record as one-line `/scaffold-linter` invocation
+4. If similar but not exact → record as adaptable; note which recipe to inspire from
+5. If no recipe → linter would need to be authored from scratch; lower priority
+
+**Add this section to `FIX_PLAN.md` (single-phase or overview file in multi-phase):**
+
+```markdown
+## Recurring Patterns Worth Promoting to Linters
+
+These violation patterns appeared in multiple fix units — promoting them to mechanical linters means pre-commit blocks recurrences automatically once the current batch is fixed.
+
+| Pattern | Fix units | Files affected | Recipe match | Scaffold command |
+|---------|-----------|----------------|--------------|------------------|
+| `Session.*\bin services` | 1.1, 1.3 | 4 | python-fastapi-layered/check_no_session_in_services.py | `/scaffold-linter no-session-in-services --recipe python-fastapi-layered/check_no_session_in_services.py` |
+| `import.meta\.env` outside lib/env.ts | 4.2, 4.5 | 7 | vite-react/check_no_direct_env_access.ts | `/scaffold-linter no-direct-env-access --recipe vite-react/check_no_direct_env_access.ts` |
+| ... | ... | ... | ... | ... |
+
+**When to scaffold:** run `/scaffold-linter` for each candidate **after the corresponding fix phase completes** — that way the linter ships with zero existing violations to enforce against (`pre-commit` exits clean) and any future regression is blocked at commit time.
+
+For multi-phase plans, add the `/scaffold-linter` invocation as the last step of each phase that fixed a recurring pattern.
+```
+
+If no patterns recur (every violation is a one-off), write `"No recurring patterns — fixes are isolated, no linters worth promoting from this audit."` instead of an empty table.
+
+This step turns audit findings into permanent project discipline. Each `/plan-fix → /scaffold-linter` cycle pushes one more rule from "LLM judges during /check" to "deterministic mechanical evaluator" — the harness gets faster and more reliable over time.
+
 ## Step 6 — Write FIX_PLAN.md (and per-phase files if multi-phase)
 
 ### 6a — Single-phase output (< 30 fix units, 1–2 themes)
@@ -226,12 +269,16 @@ Write a single `FIX_PLAN.md` at the project root:
 
 ### Fix Unit 2: ...
 
+## Recurring Patterns Worth Promoting to Linters
+{From Step 5.5 — table of candidate mechanical linters with /scaffold-linter commands. Omit the section header if no patterns recur.}
+
 ## Deferred Items
 {List items from REVIEW.md migration plan that are explicitly deferred, with reason}
 
 ## Execution Notes
 - Run `/fix-check` to execute this plan in one pass.
 - For mixed projects: each fix unit's `Agent` field determines the subagent_type.
+- After fixes complete, run any `/scaffold-linter` invocations from the Recurring Patterns section to mechanize the rules going forward.
 ```
 
 ### 6b — Multi-phase output (≥ 30 fix units OR ≥ 3 themes)
@@ -277,6 +324,9 @@ FIX_PLAN_PHASE_N.md        ← ...
 For each phase: branch → `/implement-fix-phase N` → `/check` → PR → CI → merge → next phase.
 
 **Per-phase specs are in `FIX_PLAN_PHASE_N.md` files.** This overview is for navigation only.
+
+## Recurring Patterns Worth Promoting to Linters
+{From Step 5.5 — table of candidate mechanical linters with /scaffold-linter commands. Omit the section header if no patterns recur. In multi-phase plans, also note which phase's completion is the right time to scaffold each linter.}
 
 ## Deferred Items
 {List items from REVIEW.md migration plan that are explicitly deferred, with reason}

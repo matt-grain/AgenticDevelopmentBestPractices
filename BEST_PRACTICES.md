@@ -18,6 +18,7 @@ This document describes a complete development workflow using Claude Code comman
 | Command | Purpose | Input | Output |
 |---------|---------|-------|--------|
 | `/init-component` | Scaffold a new component (Discovery stage entry point) | Component name + optional `--pm`, `--ai-dev`, `--repo-owner`, `--repo-name` | `.shipboard.yml`, scaffolded `docs/`, `CLAUDE.md`, `ARCHITECTURE.md`, first git commit, MCP `register_component` event |
+| `/scaffold-linter` | Mechanize an architectural rule as a deterministic pre-commit linter | Rule ID + recipe (e.g. `--recipe python-fastapi-layered/check_no_session_in_services.py`) | New `tools/pre_commit_checks/check_<rule>.{py\|ts}` + `.pre-commit-config.yaml` entry |
 | `/plan-status` | Dashboard: where are we? | — | Inline report |
 | `/plan-release` | Design features, split into phases | Issue refs or free-text | `IMPLEMENTATION_PLAN.md` + per-phase files |
 | `/plan-validate` | Verify plan detail is Sonnet-ready | Plan files | Inline verdict |
@@ -36,7 +37,7 @@ This document describes a complete development workflow using Claude Code comman
 Every harness command above (except `/plan-status`, which is read-only) reports a lifecycle event to ShipBoard at start, if `.shipboard.yml` is present in the repo root and `.mcp.json` registers a reachable `shipboard` server. This makes the dashboard's `/lifecycle` Kanban update live as the harness runs:
 
 - `/plan-release`, `/plan-validate`, `/plan-fix`, `/plan-fix-validate`, `/review-architecture` → stage `intent` (sub-state varies)
-- `/implement-phase N`, `/implement-fix-phase N` → stage `generate`, sub-state `phase-N` / `fix-phase-N`
+- `/implement-phase N`, `/implement-fix-phase N`, `/scaffold-linter` → stage `generate`, sub-state `phase-N` / `fix-phase-N` / `scaffold-linter`
 - `/check`, `/validate-review`, `/fix-check`, `/heal-review` → stage `verify_iterate` (sub-state `verify` / `verify-audit` / `iterate` / `heal`)
 
 Reporting is **best-effort** — when MCP is unreachable the event is queued to `.shipboard/pending_events.log` and the command continues normally. Reporting NEVER blocks command execution.
@@ -334,6 +335,61 @@ After healing each gap, `/heal-review` re-runs grep patterns from ALL previously
 
 ---
 
+## Mechanical Linters & the Recipes Catalog
+
+Both planning commands now identify candidate mechanical linters and surface them in their plans. `/scaffold-linter` converts those candidates into deterministic pre-commit hooks.
+
+### Why mechanical linters
+
+The [Anthropic harness paper's](https://www.anthropic.com/engineering/harness-design-long-running-apps) main insight: the evaluator should be objective. `/check` today has two evaluators — universal tooling (pyright/ruff/eslint/tsc + SAST/SCA — mechanical, fast, reliable) and architecture rules (LLM judgment — slower, sometimes wrong). Custom linters convert the architecture half into mechanical too. Result: `/fix-check` loops run faster, verdicts are objective, and `ARCHITECTURE.md` rules become *executable* rather than aspirational.
+
+### `/scaffold-linter` — Mechanize a Rule
+
+```
+/scaffold-linter no-session-in-services --recipe python-fastapi-layered/check_no_session_in_services.py
+/scaffold-linter useeffect-has-why --recipe vite-react/check_useeffect_has_why.ts
+```
+
+What it does:
+1. Detects project type, picks recipe directory (`recipes/linters/<type>/`)
+2. Reads the named recipe as exemplar
+3. Adapts to project specifics (package name, layer paths, value sets)
+4. Writes `tools/pre_commit_checks/check_<rule>.{py|ts}`
+5. Appends hook entry to `.pre-commit-config.yaml`
+6. Runs `pre-commit run check-<rule>` to verify it executes
+
+If the verifier exits clean → the rule is now enforced on every commit AND inside `/check`. If it exits with violations → those are real existing issues to fix (commonly with `/fix-check`).
+
+### Three natural invocation paths
+
+| Trigger | What surfaces it |
+|---|---|
+| **From `/plan-release`** | The new `## Mechanical Rules to Enforce` section in `IMPLEMENTATION_PLAN.md` lists candidate linters with one-line scaffold commands per rule. Run them at the appropriate phase (some rules apply from day one; enum discipline waits for `enums/` to exist). |
+| **From `/plan-fix`** | The new `## Recurring Patterns Worth Promoting to Linters` section in `FIX_PLAN.md` flags grep patterns that hit ≥ 2 files. Scaffold each candidate **after** the corresponding fix phase completes — that way the linter ships clean. |
+| **Directly** | Any time you notice a recurring issue and want to mechanize the rule on the spot. |
+
+### The recipes catalog (`recipes/linters/`)
+
+Reference exemplars — read by Claude when scaffolding, adapted to project specifics, never copied verbatim.
+
+| Directory | Linters | Source projects |
+|---|---|---|
+| `python-fastapi-layered/` | 12 — file/function size, StrEnum discipline, no Session/models/transactions in services, no SQLAlchemy in routers, HTTPException placement, SQLAlchemy 2.0 typed Mapped, datetime patterns | AI-SDLC, museum-analysis |
+| `python-clean-arch/` | 6 — pure domain layer, no UI exceptions in core, DI discipline, async-only HTTP | pharma-derive, museum-analysis |
+| `vite-react/` | 3 — `import.meta.env` only via `lib/env.ts`, every `useEffect` has `// WHY:` comment, no fetch in `useEffect` | Inferred from `rules/vite-react/*.md` + global frontend rules |
+
+The catalog grows by upstream contribution: when a project ships a mature project-specific linter, generalize it back into the recipe directory so the next project can scaffold it directly.
+
+### Architecture rules walk a path
+
+```
+vibes in Claude's head  →  documented in ARCHITECTURE.md  →  executable as tools/pre_commit_checks/check_*.{py|ts}
+```
+
+Each `/plan-fix → /scaffold-linter` cycle pushes one more rule from "LLM judges during /check" → "deterministic mechanical evaluator." The harness gets faster and more reliable over time.
+
+---
+
 ## `/check` vs `/fix-check` vs `/review-architecture`
 
 | | `/check` | `/fix-check` | `/review-architecture` |
@@ -385,7 +441,10 @@ paths: src/api/**/*.ts
 
 ```
 Layer 1 — Write-time:    Rules auto-load → guides code generation
-Layer 2 — Commit-time:   Tooling blocks mechanical violations
+Layer 2a — Commit-time:  Universal tooling (pyright/ruff/eslint/tsc + SAST/SCA)
+Layer 2b — Commit-time:  Project-specific mechanical linters (pre-commit hooks
+                         scaffolded by /scaffold-linter from recipes catalog —
+                         architecture rules become executable AST checks)
 Layer 3 — Merge-time:    /check → /fix-check → re-run /check
 Layer 4 — Release-time:  Full /review-architecture pipeline
 ```
@@ -393,8 +452,9 @@ Layer 4 — Release-time:  Full /review-architecture pipeline
 | Layer | What It Catches | Speed | Scope |
 |-------|----------------|-------|-------|
 | Rules | Pattern violations during generation | Instant | Current file |
-| Tooling | Type errors, lint, security | Seconds | Changed files |
-| `/check` + `/fix-check` | Architectural violations | Minutes | Git diff |
+| Tooling (universal) | Type errors, lint, security CVEs | Seconds | Changed files |
+| Mechanical linters (project) | Architecture rules ("services don't import models", "useEffect has WHY:", "StrEnum only") | Seconds | Changed files / target layer |
+| `/check` + `/fix-check` | Remaining architectural rules (LLM judgment) | Minutes | Git diff |
 | `/review-architecture` | Everything + cross-reference | 10+ min | Entire project |
 
 ---
