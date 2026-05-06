@@ -21,6 +21,24 @@ You MUST NOT edit any source file. Your only output is `FIX_PLAN.md`.
 3. Read `ARCHITECTURE.md` and `CLAUDE.md` (if they exist) to understand project conventions.
 4. Detect project type(s) — check for `pyproject.toml` with fastapi, `next.config.*`, `vite.config.*`, `pubspec.yaml` with flutter, `package.json`. Record ALL matches (mixed projects have multiple).
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="intent",
+             sub_state="fix-planning",
+             source="plan-fix",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Expand Every Finding
 
 For EACH actionable finding (🔴 Critical and 🟡 Warning) in REVIEW.md:

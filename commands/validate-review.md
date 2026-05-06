@@ -14,6 +14,24 @@ You are a review validation orchestrator. Your job is to verify that ALL finding
    - If multi-phase, parse the overview's deferred list AND the phase file (if a phase number was supplied — the per-phase file may have its own deferrals).
    Any finding or migration plan item that matches a deferred item will be marked `⏭️ DEFERRED` instead of `❌ FAIL`. Deferred items are **excluded from the completion percentage** — they were intentionally postponed, not forgotten. They are still listed in the report for visibility.
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="verify_iterate",
+             sub_state="verify-audit",
+             source="validate-review",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Build the Verification Matrix
 
 For each actionable finding from REVIEW.md, define a verification check:

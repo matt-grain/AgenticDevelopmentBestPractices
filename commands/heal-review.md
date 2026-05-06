@@ -58,6 +58,24 @@ Recommend starting with **Low effort gaps** for quick wins before tackling High 
 
 After the user selects, filter the work queue to only the selected gaps and proceed.
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="verify_iterate",
+             sub_state="heal",
+             source="heal-review",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Detect Project Type and Select Subagent
 
 Detect the project type and select the implementation subagent by matching to the custom agent definitions in `~/.claude/agents/`:

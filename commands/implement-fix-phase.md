@@ -64,6 +64,26 @@ Proceed with implementation?
 
 Wait for confirmation.
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="generate",
+             sub_state="fix-phase-<N>",   # N is the phase number from /implement-fix-phase <N>
+             source="implement-fix-phase",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
+This step runs BEFORE Step 1.5 (branch creation) so the dashboard knows the work has started even if branch creation fails.
+
 ## Step 1.5 — Create the fix-phase branch
 
 Before any subagent runs, isolate the work on its own git branch. This is what enables **formal mode** for refactoring — each themed phase becomes one PR with a CI gate before merge. Skipping this step puts you in **fast mode** (direct commits to main), which is fine for solo prototypes but loses code review and per-phase CI on architectural changes that often touch many files.

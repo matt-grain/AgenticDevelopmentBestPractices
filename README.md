@@ -202,7 +202,7 @@ The disciplined approach uses a **command chain** with mandatory checkpoints:
 
 | Workflow | Purpose | Commands |
 |----------|---------|----------|
-| **Development** | Build features from issues | `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
+| **Development** | Build features from issues | `/init-component` → `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
 | **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/plan-fix-validate` → (per phase: `/implement-fix-phase N` → `/check` → PR → merge) → `/validate-review` → `/heal-review` |
 
 ### Symmetry — both workflows have the same shape
@@ -211,6 +211,7 @@ The release-gate flow is deliberately a mirror of the development flow. Reviewer
 
 | Stage | New feature | Refactoring |
 |-------|-------------|-------------|
+| **0. Component scaffolding** | `/init-component <name>` (NEW in v1.1) — `.shipboard.yml`, docs skeleton, first commit, Discovery-stage MCP event | (refactor doesn't have this — refactors target existing components) |
 | **1. Discovery** | Issue / spec / PRD | `/review-architecture` → `REVIEW.md` |
 | **2. Plan** | `/plan-release` → `IMPLEMENTATION_PLAN.md` (+ `IMPLEMENTATION_PLAN_PHASE_N.md` when ≥2 phases) | `/plan-fix` → `FIX_PLAN.md` (+ `FIX_PLAN_PHASE_N.md` when ≥30 fix units or ≥3 themes) |
 | **3. Validate plan** | `/plan-validate` — catches Sonnet-readability gaps before any subagent runs | `/plan-fix-validate` — same Sonnet-readability check **plus** a unique-to-fix step that re-runs every violation grep pattern right now to catch stale findings (REVIEW drift, already-fixed work) before any subagent dispatches |
@@ -228,6 +229,14 @@ The middle of the table (stages 4–7) is **identical** — same branch-create �
 ### Development Workflow
 
 ```
+/init-component QuotingAgent --pm "Matt" --ai-dev "Anima"  # Discovery-stage scaffolding (NEW)
+        │
+        ▼
+    .shipboard.yml + docs/REQUIREMENTS.md template + first git commit
+        │
+        ├─ PM fills docs/REQUIREMENTS.md
+        │
+        ▼
 /plan-release GH#301, GH#404     # Design & split into phases
         │
         ▼

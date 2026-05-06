@@ -66,6 +66,24 @@ The loop is unconditional within the max — do NOT pause to ask the human betwe
 
 ---
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="verify_iterate",
+             sub_state="iterate",
+             source="fix-check",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Run Evaluator (the Oracle)
 
 This step runs the `/check` logic internally. It is the **source of truth** — never skip it, never approximate it.

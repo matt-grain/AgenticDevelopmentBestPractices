@@ -36,6 +36,24 @@ If no arguments were provided, ask the user: "Which issues should I plan? Provid
 
 If `gh issue view` fails (not in a GitHub repo, or not authenticated), fall back to asking the user to describe the feature.
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="intent",
+             sub_state=null,
+             source="plan-release",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Understand the Codebase Context
 
 Before planning, load the project context:

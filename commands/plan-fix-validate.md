@@ -24,6 +24,24 @@ Fix plans have one extra failure mode that feature plans don't: **stale grep pat
 6. **Detect project type** (pyproject.toml with fastapi, pubspec.yaml with flutter, next.config.*, vite.config.*).
 7. **Quick codebase scan**: Glob for files referenced as "Reference example" in the plan. Read 1-2 to verify they actually demonstrate the target pattern.
 
+## Step 0.5 — Report lifecycle stage to ShipBoard (if MCP available)
+
+If `.shipboard.yml` exists in the repo root and `.mcp.json` registers `shipboard`:
+
+1. Read `.shipboard.yml`; extract `component.name`.
+2. Call:
+   ```
+   shipboard(action="report_lifecycle_stage",
+             component=<component.name>,
+             stage="intent",
+             sub_state="fix-validating",
+             source="plan-fix-validate",
+             pr_number=<if known, else null>)
+   ```
+3. On failure (no MCP, server down, network error), append a one-line JSON entry to `.shipboard/pending_events.log` and continue. Reporting is best-effort — it MUST NOT block the actual command execution.
+
+If `.shipboard.yml` does not exist, skip this step silently (the user hasn't run `/init-component` yet — fine; the harness still works).
+
 ## Step 1 — Validate Fix Unit Completeness
 
 For EACH fix unit in the plan, check it against the **Fix Unit Spec Checklist**:

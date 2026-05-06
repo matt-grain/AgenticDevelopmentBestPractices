@@ -10,13 +10,14 @@ This document describes a complete development workflow using Claude Code comman
 
 | Workflow | Purpose | Commands |
 |----------|---------|----------|
-| **Development** | Build features from issues | `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
+| **Development** | Build features from issues | `/init-component` → `/plan-release` → `/plan-validate` → `/implement-phase` → `/check` → `/fix-check` |
 | **Release Gate** | Audit & fix before release | `/review-architecture` → `/plan-fix` → `/plan-fix-validate` → (per phase: `/implement-fix-phase N` → `/check` → PR → merge) → `/validate-review` → `/heal-review` |
 
 ### All Commands
 
 | Command | Purpose | Input | Output |
 |---------|---------|-------|--------|
+| `/init-component` | Scaffold a new component (Discovery stage entry point) | Component name + optional `--pm`, `--ai-dev`, `--repo-owner`, `--repo-name` | `.shipboard.yml`, scaffolded `docs/`, `CLAUDE.md`, `ARCHITECTURE.md`, first git commit, MCP `register_component` event |
 | `/plan-status` | Dashboard: where are we? | — | Inline report |
 | `/plan-release` | Design features, split into phases | Issue refs or free-text | `IMPLEMENTATION_PLAN.md` + per-phase files |
 | `/plan-validate` | Verify plan detail is Sonnet-ready | Plan files | Inline verdict |
@@ -31,6 +32,18 @@ This document describes a complete development workflow using Claude Code comman
 | `/validate-review` | Independent verification | Review artifacts | `REVIEW_VALIDATION.md` |
 | `/heal-review` | Fix remaining gaps | `REVIEW_VALIDATION.md` | Updated artifacts |
 
+### Lifecycle reporting (Step 0.5)
+
+Every harness command above (except `/plan-status`, which is read-only) reports a lifecycle event to ShipBoard at start, if `.shipboard.yml` is present in the repo root and `.mcp.json` registers a reachable `shipboard` server. This makes the dashboard's `/lifecycle` Kanban update live as the harness runs:
+
+- `/plan-release`, `/plan-validate`, `/plan-fix`, `/plan-fix-validate`, `/review-architecture` → stage `intent` (sub-state varies)
+- `/implement-phase N`, `/implement-fix-phase N` → stage `generate`, sub-state `phase-N` / `fix-phase-N`
+- `/check`, `/validate-review`, `/fix-check`, `/heal-review` → stage `verify_iterate` (sub-state `verify` / `verify-audit` / `iterate` / `heal`)
+
+Reporting is **best-effort** — when MCP is unreachable the event is queued to `.shipboard/pending_events.log` and the command continues normally. Reporting NEVER blocks command execution.
+
+If `.shipboard.yml` is missing (the user hasn't run `/init-component` yet, or this isn't a tracked component), Step 0.5 is silently skipped. Every command still works without ShipBoard.
+
 ---
 
 ## Development Workflow
@@ -40,6 +53,14 @@ Build features from GitHub Issues or Jira tickets with phased implementation and
 ### The Flow
 
 ```
+/init-component QuotingAgent --pm "Matt" --ai-dev "Anima"   # Discovery scaffolding (NEW)
+        │
+        ▼
+.shipboard.yml + docs/REQUIREMENTS.md + first commit + register_component MCP event
+        │
+        ├─ PM fills in docs/REQUIREMENTS.md
+        │
+        ▼
 /plan-release GH#301, GH#404
         │
         ▼
