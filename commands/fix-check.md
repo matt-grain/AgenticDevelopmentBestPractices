@@ -51,7 +51,7 @@ The loop is unconditional within the max — do NOT pause to ask the human betwe
    - Get changed files: `git diff --name-only --diff-filter=ACMR $(git merge-base HEAD <base>)..HEAD`
    - Filter to source files only
    - Detect project type from file extensions
-3. **Detect subagent type** (same mapping as `/fix-check`):
+3. **Detect subagent type**:
 
    | Project Detection | subagent_type |
    |---|---|
@@ -190,7 +190,7 @@ This prevents wasting iteration budget on warnings when critical issues dominate
 
 ### 2c — Group into Fix Units
 
-Same grouping logic as the original `/fix-check`:
+Group violations:
 - Same violation type across files → one unit
 - Max 8 files per unit
 - One issue type per unit
@@ -208,7 +208,7 @@ This step prevents the most common failure: vague instructions → bad fixes →
 
 ### 2e — Build Concrete HOW TO FIX Instructions
 
-For each fix unit, write explicit before/after transformations. Same quality bar as original `/fix-check` Step 3b:
+For each fix unit, write explicit before/after transformations:
 
 | BAD (wastes an iteration) | GOOD (fixes in one shot) |
 |---|---|
@@ -357,17 +357,3 @@ For each remaining violation:
 7. **One retry per subagent, not per loop.** Within an iteration, each subagent gets one retry for missed files. The LOOP handles macro-level retries. Don't nest retries.
 
 8. **Minimize scaffolding over time.** Track which violation types consistently need 2+ iterations. Those are candidates for better HOW TO FIX templates or rule refinements — reduce the need for the loop rather than relying on it.
-
----
-
-## Differences from Original `/fix-check`
-
-| Aspect | Original | Harness |
-|---|---|---|
-| Evaluator | Parses `/check` output from conversation | Runs `/check` logic internally |
-| Loop | 1 retry max, then report | Up to 3 iterations with revert |
-| Human in loop | User manually re-runs `/check` | Automatic re-evaluation |
-| Regression handling | Report new violations | Auto-revert + bail out |
-| Violation tracking | Per-fix-unit | Per-violation across iterations |
-| Priority | Fix all at once | 🔴 first, 🟡 later |
-| Exit conditions | Fixed or partial | Clean, improved, or regression |
