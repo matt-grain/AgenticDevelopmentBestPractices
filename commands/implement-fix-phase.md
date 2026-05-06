@@ -20,7 +20,7 @@ Your only allowed actions:
 
 2. **Find the plan files.** Check for:
    - `FIX_PLAN_PHASE_{N}.md` (per-phase file) — **preferred**, read this for the target phase
-   - `FIX_PLAN.md` (single-phase plan) — if no per-phase files exist, the plan is single-phase and `/fix-review` (not this command) is the right tool. Tell the user: "FIX_PLAN.md is single-phase. Use `/fix-review` to run the whole plan in one pass; this command is for multi-phase plans only." and stop.
+   - `FIX_PLAN.md` (single-phase plan) — if no per-phase files exist, the plan is single-phase and `/fix-check` (not this command) is the right tool. Tell the user: "FIX_PLAN.md is single-phase. Use `/fix-check` to run the whole plan in one pass; this command is for multi-phase plans only." and stop.
    - If neither exists, tell the user: "No fix plan found. Run `/review-architecture` then `/plan-fix` first." and stop.
 
 3. **Read the plan**: Read `FIX_PLAN_PHASE_{N}.md` — it contains all per-fix-unit specs for this phase and is self-contained. Also read `FIX_PLAN.md` for cross-phase context (theme, severity, dependencies).

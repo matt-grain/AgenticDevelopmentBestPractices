@@ -1,6 +1,6 @@
 # Plan Fix Strategy
 
-You are a fix **planner**. Your job is to read `REVIEW.md`, expand every finding into a complete file manifest with concrete fix instructions, and produce a detailed `FIX_PLAN.md` that a separate `/fix-review` session can execute mechanically. You do NOT write any code — you plan.
+You are a fix **planner**. Your job is to read `REVIEW.md`, expand every finding into a complete file manifest with concrete fix instructions, and produce a detailed `FIX_PLAN.md` that a separate `/fix-check` session can execute mechanically. You do NOT write any code — you plan.
 
 ## Your Role
 
@@ -230,7 +230,7 @@ Write a single `FIX_PLAN.md` at the project root:
 {List items from REVIEW.md migration plan that are explicitly deferred, with reason}
 
 ## Execution Notes
-- Run `/fix-review` to execute this plan in one pass.
+- Run `/fix-check` to execute this plan in one pass.
 - For mixed projects: each fix unit's `Agent` field determines the subagent_type.
 ```
 
@@ -333,7 +333,7 @@ I've analyzed {N} findings from REVIEW.md and created a single-phase fix plan
 
 Next steps:
 1. Review FIX_PLAN.md — edit anything you want to change
-2. Run `/fix-review` to execute the plan in one pass
+2. Run `/fix-check` to execute the plan in one pass
 3. After it completes, `/check` → push branch → `gh pr create`
 ```
 

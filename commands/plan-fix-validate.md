@@ -98,7 +98,7 @@ for fix_unit in plan:
 2. The grep pattern in the plan is wrong (typo, escaping issue)
 3. The file list in the plan is wrong (the violation is in different files than listed)
 
-In all three cases the fix unit must be removed or rewritten before execution. Running `/fix-review` against a stale fix unit wastes a subagent dispatch and may produce destructive "fixes" to code that's already correct.
+In all three cases the fix unit must be removed or rewritten before execution. Running `/fix-check` against a stale fix unit wastes a subagent dispatch and may produce destructive "fixes" to code that's already correct.
 
 **Flag as ❌ BLOCKER** any fix unit whose grep pattern returns zero matches.
 
@@ -293,11 +293,11 @@ Output validation results directly in conversation (no file output):
 - Total fix units in plan: {N}
 - ✅ Complete: {X}/{N}
 - ⚠️ Need refinement: {Y}
-- ❌ Blockers (must fix before /implement-fix-phase or /fix-review): {Z}
+- ❌ Blockers (must fix before /implement-fix-phase or /fix-check): {Z}
 
 ### Verdict
 ✅ READY TO IMPLEMENT — plan is detailed enough for Sonnet subagents.
-⚠️ NEEDS REFINEMENT — {Y} fix units have gaps. Refine before running `/implement-fix-phase` or `/fix-review`.
+⚠️ NEEDS REFINEMENT — {Y} fix units have gaps. Refine before running `/implement-fix-phase` or `/fix-check`.
 ❌ NOT READY — {Z} blockers (stale patterns and/or missing required fields). Plan needs significant revision before execution.
 ```
 

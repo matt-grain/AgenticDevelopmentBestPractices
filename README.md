@@ -278,7 +278,7 @@ formal-vs-fast trade.)
         │
         ├─ Small audit (<30 fix units, 1–2 themes)
         │   → FIX_PLAN.md (single-phase)
-        │     /fix-review (one harness pass)
+        │     /fix-check (one harness pass)
         │
         └─ Large audit (≥30 fix units OR ≥3 themes)
             → FIX_PLAN.md (overview)
@@ -309,7 +309,7 @@ The `/fix-*` commands implement a **Generator/Evaluator harness** inspired by [A
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  /fix-check or /fix-review (harness orchestrator)       │
+│  /fix-check (harness orchestrator)                      │
 │                                                         │
 │  ✗ Cannot write source code directly                   │
 │  ✓ Runs evaluator (objective oracle: tooling + grep)   │
@@ -364,7 +364,7 @@ These practices power development on:
 
 ### Harness Design & Self-Correcting Agents
 
-- [Harness Design for Long-Running AI Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) - Anthropic Engineering, 2025. Generator/Evaluator separation, sprint contracts, context resets. Core pattern behind `/fix-check` and `/fix-review`.
+- [Harness Design for Long-Running AI Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) - Anthropic Engineering, 2025. Generator/Evaluator separation, sprint contracts, context resets. Core pattern behind `/fix-check`.
 - [autoresearch: program.md](https://github.com/karpathy/autoresearch/blob/master/program.md) - Karpathy, 2025. Autonomous experiment loop with objective metric, auto-revert on regression. Inspired the "regression = revert" pattern.
 
 ### Academic Papers

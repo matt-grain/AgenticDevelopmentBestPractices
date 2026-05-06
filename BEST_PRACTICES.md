@@ -28,7 +28,6 @@ This document describes a complete development workflow using Claude Code comman
 | `/plan-fix` | Plan fixes with HOW TO FIX. Splits into per-phase files when large. | `REVIEW.md` | `FIX_PLAN.md` (+ `FIX_PLAN_PHASE_N.md` if multi-phase) |
 | `/plan-fix-validate` | Validate the fix plan is Sonnet-ready. Re-runs every violation grep to catch stale patterns. | `FIX_PLAN.md` (+ per-phase files) | Validation report (in conversation) |
 | `/implement-fix-phase N` | Ship one themed phase as a focused PR (refactor analog of `/implement-phase`) | `FIX_PLAN_PHASE_N.md` | `FIX_STATUS.md`, branch `fix-phase-N-<theme>` |
-| `/fix-review [N]` | Execute fix plan (or one phase via `/fix-review N`) with self-correcting loop | `FIX_PLAN.md` or `FIX_PLAN_PHASE_N.md` | `REVIEW_FIX_LOG.md` |
 | `/validate-review` | Independent verification | Review artifacts | `REVIEW_VALIDATION.md` |
 | `/heal-review` | Fix remaining gaps | `REVIEW_VALIDATION.md` | Updated artifacts |
 
@@ -225,7 +224,7 @@ Audit the entire codebase against architectural rules, fix all violations, verif
     /plan-fix
         │
         ├─ Small audit (<30 fix units, 1–2 themes)
-        │   → FIX_PLAN.md (single-phase, run /fix-review once)
+        │   → FIX_PLAN.md (single-phase, run /fix-check once)
         │
         └─ Large audit (≥30 fix units OR ≥3 themes)
             → FIX_PLAN.md (overview)
@@ -290,35 +289,12 @@ What it does:
 7. **Splits into per-phase files** (`FIX_PLAN_PHASE_N.md`) when ≥30 fix units OR ≥3 themes — each phase ships as one focused PR, mirroring how `/plan-release` splits feature work into per-phase plan files
 
 **Output**:
-- Small audits → single `FIX_PLAN.md` with all fix units inline (run with `/fix-review`)
+- Small audits → single `FIX_PLAN.md` with all fix units inline (run with `/fix-check`)
 - Large audits → `FIX_PLAN.md` overview + `FIX_PLAN_PHASE_N.md` per phase (run each with `/implement-fix-phase N`)
 
 Review and edit before executing.
 
 **Why plan first?** Subagents produce dramatically better results when given precise instructions ("Replace `data: dict` with `data: ItemCreate` on line 67") versus vague directives ("fix the types"). Planning also catches scope issues before code changes.
-
-### `/fix-review` — Self-Correcting Fix Harness
-
-Reads `FIX_PLAN.md` and executes each fix unit with a self-correcting evaluator loop. Same harness pattern as `/fix-check`, adapted for full-codebase scope.
-
-```
-/fix-review                            # Uses FIX_PLAN.md if present
-```
-
-What it does:
-1. Reads `FIX_PLAN.md` (or builds manifest on-the-fly if missing)
-2. For each fix unit, dispatches correct subagent with HOW TO FIX
-3. Verifies each unit (Grep re-check, file count)
-4. Runs tooling gate between phases
-5. **Cross-phase interference check** — re-runs ALL prior phases' grep patterns after each phase
-6. **Full evaluator sweep** after all phases — re-runs every grep pattern from the manifest
-7. **Loops** — if violations remain and count decreased, rebuilds manifest for remaining only (max 2 iterations)
-8. **Reverts on regression** — if iteration 2 doesn't improve over iteration 1, undo it
-9. Updates `REVIEW.md` with fix statuses
-
-**Output**: `REVIEW_FIX_LOG.md` (with iteration tracking) + updated `REVIEW.md`
-
-**Key difference from `/fix-check`**: The evaluator uses the manifest's grep patterns as the oracle (deterministic, fast) rather than re-running 5 review agents. MAX_ITERATIONS = 2 (heavier scope).
 
 ### `/validate-review` — Independent Verification
 
@@ -358,17 +334,17 @@ After healing each gap, `/heal-review` re-runs grep patterns from ALL previously
 
 ---
 
-## `/check` vs `/fix-check` vs `/review-architecture` vs `/fix-review`
+## `/check` vs `/fix-check` vs `/review-architecture`
 
-| | `/check` | `/fix-check` | `/review-architecture` | `/fix-review` |
-|---|---|---|---|---|
-| **Scope** | Changed files (git diff) | Violations from `/check` | Entire codebase | Findings from `REVIEW.md` |
-| **Speed** | Minutes | Minutes | 10+ minutes | 30+ minutes |
-| **Modifies code?** | No (read-only) | Yes | No (read-only) | Yes |
-| **Output** | Inline verdict | Inline report | `REVIEW.md` | `REVIEW_FIX_LOG.md` |
-| **When to use** | Before every merge | After `/check` finds violations | At release milestones | After `/plan-fix` |
-| **Self-correcting loop?** | N/A | Yes (max 3 iterations, auto-revert) | N/A | Yes (max 2 iterations, auto-revert) |
-| **Evaluator** | N/A | Runs `/check` logic internally | N/A | Grep patterns from manifest |
+| | `/check` | `/fix-check` | `/review-architecture` |
+|---|---|---|---|
+| **Scope** | Changed files (git diff) | Violations from `/check`, or fix units from `FIX_PLAN.md` | Entire codebase |
+| **Speed** | Minutes | Minutes | 10+ minutes |
+| **Modifies code?** | No (read-only) | Yes | No (read-only) |
+| **Output** | Inline verdict | Inline report (or `REVIEW_FIX_LOG.md` when run after `/plan-fix`) | `REVIEW.md` |
+| **When to use** | Before every merge | After `/check` finds violations, or after `/plan-fix` | At release milestones |
+| **Self-correcting loop?** | N/A | Yes (max 3 iterations, auto-revert) | N/A |
+| **Evaluator** | N/A | Runs `/check` logic internally, or grep patterns from `FIX_PLAN.md` | N/A |
 
 ---
 
@@ -429,7 +405,7 @@ Layer 4 — Release-time:  Full /review-architecture pipeline
 
 Both workflows separate planning, validation, and execution:
 - **Development**: `/plan-release` plans → `/plan-validate` verifies → `/implement-phase` executes
-- **Release gate**: `/plan-fix` plans → `/fix-review` executes
+- **Release gate**: `/plan-fix` plans → `/fix-check` executes
 
 This separation improves quality because:
 1. Planning gets dedicated attention with per-file specs
@@ -440,7 +416,7 @@ This separation improves quality because:
 
 ### Orchestrator Delegation Rule
 
-Commands like `/fix-review`, `/fix-check`, `/heal-review`, `/implement-phase` are **orchestrators** that MUST NOT edit source code directly. All code changes are dispatched to specialized subagents via the `Agent` tool.
+Commands like `/fix-check`, `/heal-review`, `/implement-phase` are **orchestrators** that MUST NOT edit source code directly. All code changes are dispatched to specialized subagents via the `Agent` tool.
 
 Orchestrator actions:
 - Read files, Grep/Glob for patterns
@@ -462,7 +438,7 @@ Inspired by [Anthropic's harness design](https://www.anthropic.com/engineering/h
 
 ### Human Checkpoints
 
-- `/plan-fix` → user reviews `FIX_PLAN.md` before `/fix-review`
+- `/plan-fix` → user reviews `FIX_PLAN.md` before `/fix-check`
 - `/plan-release` → user reviews plan files → `/plan-validate` verifies before `/implement-phase`
 - `/fix-check` → user confirms fix plan before execution
 - Phase checkpoints pause for confirmation
@@ -477,7 +453,7 @@ Inspired by [Anthropic's harness design](https://www.anthropic.com/engineering/h
 | Starting a new feature | `/plan-release` → `/plan-validate` → `/implement-phase N` → `/check` |
 | Before merging a feature branch | `/check` |
 | `/check` found violations | `/fix-check` → `/check` again |
-| New project bootstrap | `/review-architecture` → `/plan-fix` → `/fix-review` → `/validate-review` |
+| New project bootstrap | `/review-architecture` → `/plan-fix` → `/fix-check` → `/validate-review` |
 | Onboarding existing project | Same as bootstrap |
 | Before a release | Full release gate workflow |
 | Quick drift check | `/review-architecture` only |

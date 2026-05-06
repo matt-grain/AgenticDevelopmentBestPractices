@@ -82,7 +82,7 @@ Based on the state, recommend the logical next step:
 | Phase complete, uncommitted changes | "Run `/check` then commit Phase {N}" |
 | All phases complete | "Implementation done. Run `/review-architecture` before release" |
 | REVIEW.md exists, no FIX_PLAN.md | "Run `/plan-fix` to create a fix plan" |
-| FIX_PLAN.md exists, not executed | "Review FIX_PLAN.md, then run `/fix-review` to execute" |
+| FIX_PLAN.md exists, not executed | "Review FIX_PLAN.md, then run `/fix-check` to execute" |
 | REVIEW_FIX_LOG.md exists, no validation | "Run `/validate-review` to verify fixes" |
 | REVIEW_VALIDATION.md shows gaps | "Run `/heal-review` to fix {N} remaining gaps" |
 | REVIEW_VALIDATION.md ALL CLEAR | "Ready for release" |

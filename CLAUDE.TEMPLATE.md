@@ -59,7 +59,7 @@ Before a release:
 ```
 /review-architecture      # Full audit → REVIEW.md
 /plan-fix                 # Detailed fix plan → FIX_PLAN.md (review this!)
-/fix-review               # Execute the plan
+/fix-check               # Execute the plan
 /validate-review          # Independent verification
 /heal-review              # Fix remaining gaps (if any)
 ```
